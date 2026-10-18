@@ -2,8 +2,10 @@
 
 Deduplication, in order:
 
-1. **Exact resubmission.** The normalized description hash matches a stored posting. Nothing
-   is stored and the existing opportunity is returned.
+1. **Exact resubmission.** The hash of the normalized description, canonical URL, company,
+   title, and location matches a stored posting. Nothing is stored and the existing
+   opportunity is returned. A reused description with different metadata is not a
+   resubmission and falls through to the checks below.
 2. **Same canonical URL.** The source URL, ignoring scheme, ``www.``, query, fragment, and
    trailing slash, matches an opportunity.
 3. **Same identity.** Company, title, and location are all present and match an opportunity
@@ -67,8 +69,15 @@ def _norm(text: str | None) -> str:
     return re.sub(r"[^\w]+", " ", (text or "").lower()).strip()
 
 
-def content_hash(description: str) -> str:
-    return hashlib.sha256(_norm(description).encode()).hexdigest()
+def content_hash(
+    description: str,
+    url_key: str | None = None,
+    company: str | None = None,
+    title: str | None = None,
+    location: str | None = None,
+) -> str:
+    joined = "|".join([_norm(description), url_key or "", *map(_norm, (company, title, location))])
+    return hashlib.sha256(joined.encode()).hexdigest()
 
 
 def canonical_url(url: str | None) -> str | None:
@@ -104,7 +113,11 @@ def ingest_job(
         raise InvalidInputError(f"description exceeds {max_description_chars} characters")
 
     raw = submission.model_dump(mode="json", exclude_none=True)
-    digest = content_hash(submission.description)
+    source_url = str(submission.source_url) if submission.source_url else None
+    url_key = canonical_url(source_url)
+    digest = content_hash(
+        submission.description, url_key, submission.company, submission.title, submission.location
+    )
     existing_posting = session.scalar(select(JobPosting).where(JobPosting.content_hash == digest))
     if existing_posting is not None:
         logger.info(
@@ -117,8 +130,6 @@ def ingest_job(
             get_job(session, existing_posting.opportunity_id),
         )
 
-    source_url = str(submission.source_url) if submission.source_url else None
-    url_key = canonical_url(source_url)
     id_key = identity_key(submission.company, submission.title, submission.location)
     match = _find_existing(session, url_key, id_key)
 

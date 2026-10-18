@@ -11,6 +11,7 @@ from next_role.candidates.models import (
     Candidate,
     CandidateFact,
     EvidenceSource,
+    FactType,
     VerificationStatus,
 )
 from next_role.candidates.schemas import (
@@ -25,6 +26,7 @@ from next_role.candidates.schemas import (
     FactOut,
     FactSupport,
     FactUpdate,
+    check_dates,
 )
 from next_role.errors import InvalidInputError, NotFoundError
 from next_role.skills import normalize_skills
@@ -249,8 +251,13 @@ def update_fact(
         if field in changes and changes[field] != getattr(fact, field):
             setattr(fact, field, changes[field])
             content_changed = True
-    if fact.start_date and fact.end_date and fact.end_date < fact.start_date:
-        raise InvalidInputError("end date must not be before start date")
+    # Validate the updated record as a whole, with the same rules as on creation.
+    try:
+        check_dates(fact.start_date, fact.end_date, fact.is_current)
+    except ValueError as exc:
+        raise InvalidInputError(str(exc)) from exc
+    if fact.fact_type is FactType.EXPERIENCE and not fact.is_current and fact.end_date is None:
+        raise InvalidInputError("end_date is required unless is_current is true")
 
     if data.evidence_source_ids is not None:
         fact.evidence_sources = _owned_evidence(session, candidate_id, data.evidence_source_ids)

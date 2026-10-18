@@ -129,6 +129,12 @@ def test_uninterpretable_requirement_is_unknown() -> None:
     assert "manually" in result.explanation
 
 
+def test_unlisted_skill_matches_by_exact_name() -> None:
+    cobol = candidate(fact(title="COBOL"))
+    assert status("COBOL required", cobol) is MatchStatus.MET
+    assert status("COBOL required", candidate(fact())) is MatchStatus.UNKNOWN
+
+
 # --- Experience years --------------------------------------------------------------------
 
 
@@ -160,6 +166,12 @@ def test_back_to_back_roles_do_not_lose_time() -> None:
         _exp(date(2021, 1, 1), date(2021, 6, 30)), _exp(date(2021, 7, 1), date(2022, 12, 31))
     )
     assert "2 years" in match_requirement(req("2+ years experience"), cand, AS_OF).explanation
+
+
+def test_experience_starting_after_as_of_is_ignored() -> None:
+    cand = candidate(_exp(date(2020, 1, 1), date(2022, 12, 31)), _exp(date(2024, 1, 1)))
+    result = match_requirement(req("3+ years experience"), cand, date(2022, 12, 31))
+    assert "3 years" in result.explanation
 
 
 def test_too_few_supported_years_is_not_met() -> None:

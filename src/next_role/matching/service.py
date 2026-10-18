@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, date, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from next_role.candidates.models import Candidate, CandidateFact
@@ -124,13 +125,7 @@ def run_assessment(
     candidate = get_candidate(session, candidate_id)
     fingerprint = input_fingerprint(candidate, job, as_of)
 
-    existing = session.scalar(
-        select(SuitabilityAssessment).where(
-            SuitabilityAssessment.candidate_id == candidate_id,
-            SuitabilityAssessment.opportunity_id == job_id,
-            SuitabilityAssessment.input_fingerprint == fingerprint,
-        )
-    )
+    existing = _find_assessment(session, candidate_id, job_id, fingerprint)
     if existing is not None:
         return get_assessment(session, existing.id), False
 
@@ -151,21 +146,28 @@ def run_assessment(
         preference_checks=[c.as_dict() for c in result.preference_checks],
         input_fingerprint=fingerprint,
     )
-    session.add(assessment)
-    for position, r in enumerate(result.results):
-        session.add(
-            RequirementAssessment(
-                assessment=assessment,
-                requirement_id=r.requirement_id,
-                position=position,
-                status=r.status,
-                weight=r.weight,
-                credit=r.credit,
-                explanation=r.explanation,
-                evidence=[e.as_dict() for e in r.evidence],
-            )
-        )
-    session.flush()
+    try:
+        with session.begin_nested():
+            session.add(assessment)
+            for position, r in enumerate(result.results):
+                session.add(
+                    RequirementAssessment(
+                        assessment=assessment,
+                        requirement_id=r.requirement_id,
+                        position=position,
+                        status=r.status,
+                        weight=r.weight,
+                        credit=r.credit,
+                        explanation=r.explanation,
+                        evidence=[e.as_dict() for e in r.evidence],
+                    )
+                )
+    except IntegrityError:
+        # A concurrent request stored the same assessment first; return that one.
+        existing = _find_assessment(session, candidate_id, job_id, fingerprint)
+        if existing is None:
+            raise
+        return get_assessment(session, existing.id), False
     logger.info(
         "assessment completed",
         extra={
@@ -176,6 +178,18 @@ def run_assessment(
         },
     )
     return get_assessment(session, assessment.id), True
+
+
+def _find_assessment(
+    session: Session, candidate_id: uuid.UUID, job_id: uuid.UUID, fingerprint: str
+) -> SuitabilityAssessment | None:
+    return session.scalar(
+        select(SuitabilityAssessment).where(
+            SuitabilityAssessment.candidate_id == candidate_id,
+            SuitabilityAssessment.opportunity_id == job_id,
+            SuitabilityAssessment.input_fingerprint == fingerprint,
+        )
+    )
 
 
 def get_assessment(session: Session, assessment_id: uuid.UUID) -> SuitabilityAssessment:

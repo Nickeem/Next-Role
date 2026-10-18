@@ -17,7 +17,7 @@ Core principles:
 import re
 import uuid
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from enum import StrEnum
 from functools import cached_property
@@ -29,7 +29,7 @@ from next_role.jobs.extraction import (
     RequirementCategory,
     RequirementImportance,
 )
-from next_role.skills import detect_skills, skill_family
+from next_role.skills import detect_skills, is_known_skill, skill_family
 
 METHOD = "rules"
 METHOD_VERSION = "rules-v1"
@@ -276,6 +276,20 @@ def _combine_terms(req: RequirementView, per_term: list[_TermEvidence]) -> tuple
     return MatchStatus.NO_EVIDENCE, "the knowledge base has no evidence for these skills"
 
 
+def _unlisted_skill_terms(text: str, facts: Sequence[FactView]) -> tuple[str, ...]:
+    """Candidate skills outside the vocabulary that the requirement names verbatim.
+
+    Free-text detection only knows the vocabulary, so "COBOL required" has no terms. Skills the
+    candidate listed explicitly can still be matched by exact (normalized) name.
+    """
+    clean = re.sub(r"\s+", " ", text.lower())
+    found: dict[str, int] = {}
+    for name in {s for f in facts for s in f.skills if not is_known_skill(s)}:
+        if m := re.search(rf"(?<![\w+#.]){re.escape(name)}(?![\w+#])", clean):
+            found[name] = m.start()
+    return tuple(sorted(found, key=found.__getitem__))
+
+
 def _match_skills(req: RequirementView, facts: Sequence[FactView]) -> RequirementResult:
     per_term = [_term_evidence(t, facts) for t in req.terms]
     status, summary = _combine_terms(req, per_term)
@@ -299,7 +313,7 @@ def _total_years(facts: Iterable[FactView], as_of: date) -> float:
     intervals = sorted(
         (f.start_date, min(f.end_date or as_of, as_of))
         for f in facts
-        if _is_dated(f) and f.start_date is not None
+        if _is_dated(f) and f.start_date is not None and f.start_date <= as_of
     )
     days = 0
     current: tuple[date, date] | None = None
@@ -662,6 +676,8 @@ def match_requirement(
             return _match_work_authorization(req, candidate.preferences)
         case _ if req.terms:
             return _match_skills(req, facts)
+        case RequirementCategory.OTHER if terms := _unlisted_skill_terms(req.text, facts):
+            return _match_skills(replace(req, terms=terms), facts)
         case _:
             return _result(
                 req,

@@ -180,7 +180,7 @@ class _FactInBase(_Strict):
         raise NotImplementedError
 
 
-def _check_dates(start: date | None, end: date | None, is_current: bool = False) -> None:
+def check_dates(start: date | None, end: date | None, is_current: bool = False) -> None:
     if start and end and end < start:
         raise ValueError("end date must not be before start date")
     if is_current and end:
@@ -202,7 +202,7 @@ class ExperienceIn(_FactInBase):
 
     @model_validator(mode="after")
     def _dates(self) -> Self:
-        _check_dates(self.start_date, self.end_date, self.is_current)
+        check_dates(self.start_date, self.end_date, self.is_current)
         if not self.is_current and self.end_date is None:
             raise ValueError("end_date is required unless is_current is true")
         return self
@@ -262,7 +262,7 @@ class EducationIn(_FactInBase):
 
     @model_validator(mode="after")
     def _dates(self) -> Self:
-        _check_dates(self.start_date, self.end_date, self.is_current)
+        check_dates(self.start_date, self.end_date, self.is_current)
         return self
 
     def to_record(self) -> FactRecord:
@@ -297,7 +297,7 @@ class CertificationIn(_FactInBase):
 
     @model_validator(mode="after")
     def _dates(self) -> Self:
-        _check_dates(self.issued_date, self.expires_date)
+        check_dates(self.issued_date, self.expires_date)
         return self
 
     def to_record(self) -> FactRecord:
@@ -329,7 +329,7 @@ class ProjectIn(_FactInBase):
 
     @model_validator(mode="after")
     def _dates(self) -> Self:
-        _check_dates(self.start_date, self.end_date, self.is_current)
+        check_dates(self.start_date, self.end_date, self.is_current)
         return self
 
     def to_record(self) -> FactRecord:

@@ -69,7 +69,8 @@ suitability_assessments (candidate × opportunity) ─< requirement_assessments 
   The table has a lifecycle `status` (`active`/`archived`), dedup keys (`canonical_url`, which
   is unique, and `identity_key`), and records how requirements were extracted
   (`extraction_method`, `extraction_notes`).
-- **`job_postings`** stores each distinct submission's payload with a unique `content_hash`.
+- **`job_postings`** stores each distinct submission's payload with a unique `content_hash` (normalized
+  description, canonical URL, company, title, and location).
 - **`job_requirements`** stores the original `text`, `category`, `importance`, canonical skill
   `terms`, and category-specific `details` (`min_years`, `education_level`, `countries`,
   `sponsorship_available`).

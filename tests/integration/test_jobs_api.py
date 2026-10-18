@@ -75,6 +75,18 @@ def test_exact_resubmission_is_not_stored_twice(client: TestClient, job: dict[st
     assert len(client.get("/api/v1/jobs").json()) == 1
 
 
+def test_reused_description_for_another_posting_is_kept(
+    client: TestClient, job: dict[str, Any]
+) -> None:
+    first = client.post("/api/v1/jobs", json=job).json()
+    job["location"] = "Vancouver, BC (Hybrid)"
+    job["source_url"] = "https://jobs.example.invalid/fabrikam/senior-backend-engineer-vancouver"
+    second = client.post("/api/v1/jobs", json=job).json()
+    assert second["outcome"] == "created"
+    assert second["job"]["id"] != first["job"]["id"]
+    assert second["job"]["location"] == "Vancouver, BC (Hybrid)"
+
+
 def test_same_url_links_new_posting(client: TestClient, job: dict[str, Any]) -> None:
     first = client.post("/api/v1/jobs", json=job).json()
     job["description"] += "\nUpdated: salary band confirmed."

@@ -37,8 +37,8 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
 - Jobs have three tables. `job_postings` holds each distinct raw submission verbatim.
   `job_opportunities` is the normalized, de-duplicated record. `job_requirements` are the
   classified requirement statements, each with `terms` and category-specific `details`.
-- Deduplication runs in order: exact normalized description hash (nothing stored), then
-  canonical URL, then the company + title + location identity key. The last two link a new
+- Deduplication runs in order: exact resubmission, a hash of the normalized description,
+  canonical URL, company, title, and location (nothing stored), then canonical URL, then the company + title + location identity key. The last two link a new
   posting to the existing opportunity.
 - Missing title, company, location, and salary stay null. Work arrangement and employment
   type fall back to `unknown` when the text gives no explicit cue.

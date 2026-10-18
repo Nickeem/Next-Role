@@ -143,9 +143,12 @@ assessment. Any change to those inputs creates a new assessment and keeps the ol
 
 - Requirements are extracted with headings and keyword rules. Unusual formatting can merge,
   split, or miss requirements, and unrecognized statements become `unknown`.
-- Skills outside the explicit vocabulary are only matched by exact name. Ambiguous names
+- Skills outside the explicit vocabulary are only matched by exact name: a requirement the
+  rules cannot classify is matched against skills the candidate listed explicitly when it
+  names one verbatim (for example "COBOL required" and a `cobol` skill fact). Ambiguous names
   ("Go", "R", "C") are not detected in free text.
 - There is no semantic understanding. Paraphrases ("ship backend services" vs "API
-  development") do not match, and soft skills are never evaluated.
+  development") do not match, and soft skills are only evaluated through that exact-name
+  match.
 - Field of study, seniority, and the quality or recency of experience are not evaluated.
 - Work authorization is the candidate's own declaration and is not verified.
