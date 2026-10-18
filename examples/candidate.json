@@ -1,0 +1,142 @@
+{
+  "schema_version": "candidate-profile/v1",
+  "full_name": "Alex Example",
+  "headline": "Backend engineer (synthetic example profile)",
+  "summary": "Synthetic candidate used for documentation and tests. Not a real person.",
+  "location": "Toronto, ON, Canada",
+  "preferences": {
+    "desired_titles": ["Senior Backend Engineer", "Platform Engineer"],
+    "locations": ["Toronto", "Canada"],
+    "work_arrangements": ["remote", "hybrid"],
+    "employment_types": ["full_time"],
+    "willing_to_relocate": false,
+    "work_authorizations": ["CA"],
+    "requires_sponsorship": true,
+    "min_salary": 120000,
+    "salary_currency": "CAD"
+  },
+  "evidence_sources": [
+    {
+      "key": "resume",
+      "kind": "resume",
+      "title": "Resume (synthetic)",
+      "reference": "file://example/resume-alex-example.pdf"
+    },
+    {
+      "key": "aws-cert",
+      "kind": "certificate",
+      "title": "AWS certification record (synthetic)",
+      "reference": "https://certs.example.invalid/alex-example"
+    },
+    {
+      "key": "transcript",
+      "kind": "transcript",
+      "title": "University transcript (synthetic)"
+    },
+    {
+      "key": "portfolio",
+      "kind": "portfolio",
+      "title": "Project repository (synthetic)",
+      "reference": "https://git.example.invalid/alex-example/route-planner"
+    }
+  ],
+  "facts": [
+    {
+      "key": "exp-northwind",
+      "fact_type": "experience",
+      "title": "Backend Engineer",
+      "organization": "Northwind Freight (fictional)",
+      "start_date": "2018-03-01",
+      "end_date": "2022-06-30",
+      "location": "Toronto, ON",
+      "employment_type": "full_time",
+      "responsibilities": [
+        "Built REST APIs in Python and Django for shipment tracking",
+        "Maintained PostgreSQL schemas and query performance",
+        "Containerized services with Docker"
+      ],
+      "skills": ["Python", "Django", "Postgres", "Docker", "REST"],
+      "verification_status": "user_verified",
+      "evidence_keys": ["resume"]
+    },
+    {
+      "key": "exp-contoso",
+      "fact_type": "experience",
+      "title": "Senior Backend Engineer",
+      "organization": "Contoso Health (fictional)",
+      "start_date": "2022-07-01",
+      "is_current": true,
+      "responsibilities": [
+        "Lead development of event-driven services using Kafka and FastAPI",
+        "Operate workloads on AWS with Terraform-managed infrastructure"
+      ],
+      "skills": ["Python", "FastAPI", "Kafka", "AWS", "Terraform", "PostgreSQL"],
+      "verification_status": "user_verified",
+      "evidence_keys": ["resume"]
+    },
+    {
+      "fact_type": "skill",
+      "name": "Python",
+      "category": "technical",
+      "proficiency": "expert",
+      "years_experience": 8,
+      "verification_status": "user_verified"
+    },
+    {
+      "fact_type": "skill",
+      "name": "PostgreSQL",
+      "category": "technical",
+      "proficiency": "advanced",
+      "verification_status": "user_verified"
+    },
+    {
+      "fact_type": "skill",
+      "name": "Kubernetes",
+      "category": "technical",
+      "proficiency": "beginner"
+    },
+    {
+      "fact_type": "skill",
+      "name": "English",
+      "category": "language",
+      "proficiency": "expert",
+      "verification_status": "user_verified"
+    },
+    {
+      "fact_type": "education",
+      "institution": "Example State University (fictional)",
+      "degree_level": "bachelor",
+      "degree_name": "BSc Computer Science",
+      "field_of_study": "Computer Science",
+      "start_date": "2013-09-01",
+      "end_date": "2017-05-31",
+      "evidence_keys": ["transcript"]
+    },
+    {
+      "fact_type": "certification",
+      "name": "AWS Certified Solutions Architect - Associate",
+      "issuer": "Amazon Web Services",
+      "issued_date": "2023-02-15",
+      "expires_date": "2026-02-15",
+      "skills": ["AWS"],
+      "evidence_keys": ["aws-cert"]
+    },
+    {
+      "key": "proj-route",
+      "fact_type": "project",
+      "name": "Route planner (open source)",
+      "description": "Delivery route optimizer with a Redis cache and a Python API.",
+      "role": "Maintainer",
+      "skills": ["Python", "Redis"],
+      "evidence_keys": ["portfolio"]
+    },
+    {
+      "fact_type": "achievement",
+      "title": "Reduced API p95 latency",
+      "description": "Cut p95 latency of the claims API by profiling and caching hot paths.",
+      "metrics": ["p95 latency reduced 40%"],
+      "parent_key": "exp-contoso",
+      "verification_status": "user_verified"
+    }
+  ]
+}
