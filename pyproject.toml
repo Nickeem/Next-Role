@@ -22,9 +22,6 @@ dev = [
     "mypy>=1.11",
 ]
 
-[project.scripts]
-next-role = "next_role.cli:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

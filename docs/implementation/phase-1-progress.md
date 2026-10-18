@@ -12,7 +12,7 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
 | 3 | Manual job ingestion, rule-based requirement extraction, deduplication | done |
 | 4 | Deterministic matching, scoring, persisted assessments | done |
 | 5 | LLM provider abstraction (optional, schema-validated, with deterministic fallback) | done |
-| 6 | Documentation, end-to-end demo, PR | pending |
+| 6 | Documentation, end-to-end demo, PR | done (PR open for review) |
 
 ## Decisions
 
@@ -73,12 +73,36 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
 - M3: 38 tests pass (extraction unit tests, including a prompt-injection line in the example
   posting; ingestion, unknown fields, manual requirements, three dedup paths, validation,
   status filter).
-- M4: 69 tests pass (37 matching engine unit tests; assessment API with an end-to-end scenario
+- M4: 69 tests pass (25 matching engine unit tests; assessment API with an end-to-end scenario
   on the synthetic candidate, a mismatched role, idempotency and re-assessment after
   verification, retired facts, empty requirements, 404s).
 - M5: 80 tests pass (fake-provider extraction, grounding, retry and fallback, prompt
   delimiting, httpx MockTransport adapter tests, factory, API wiring).
+- M6: the end-to-end workflow ran against the real Docker Compose stack (`scripts/demo.sh`):
+  readiness reported revision `0004_assessments`; candidate created; job ingested; the
+  resubmission was deduplicated; assessment score 69, tier moderate; the stored assessment
+  was retrieved. API logs carry only identifiers and counts.
 
 ## Known limitations / open issues
 
-- (none yet)
+- The limitations of rule-based extraction and matching are listed in `docs/matching.md` §7.
+  They include paraphrases and soft skills (`unknown`), a limited skill vocabulary, ambiguous
+  skill names that cannot be detected in free text, and field of study and seniority not being
+  evaluated.
+- Work authorization is the candidate's own declaration. It is treated as met and the
+  explanation flags it for confirmation.
+- Deduplication on company + title + location can link two genuinely different openings
+  with identical metadata. The raw postings are kept and the outcome says
+  `linked_to_existing`.
+- LLM extraction runs inside `POST /jobs` (bounded by a timeout and one retry). Moving it to a
+  background worker is Phase 2.
+- Single shared API key: no per-user accounts or authorization yet.
+- Tests print a `StarletteDeprecationWarning` about httpx in the TestClient. It is harmless.
+- The LLM adapters are tested with mocked HTTP only. They have not been exercised against a
+  live Ollama or OpenAI-compatible server in this environment.
+
+## Commits
+
+- `0e65a3b` foundation · `f68f471` candidate knowledge base · `9d7b8b3` job ingestion ·
+  `208bcba` matching and assessments · `5fb738b` LLM extraction · docs, demo, and handoff
+  (this commit).
