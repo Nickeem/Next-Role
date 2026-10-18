@@ -126,3 +126,19 @@ def test_list_filter_and_archive(client: TestClient, job: dict[str, Any]) -> Non
     assert client.get("/api/v1/jobs?status=active").json() == []
     assert len(client.get("/api/v1/jobs?status=archived").json()) == 1
     assert client.get(f"/api/v1/jobs/{'0' * 8}-0000-0000-0000-{'0' * 12}").status_code == 404
+
+
+def test_configured_llm_extractor_is_used_and_recorded(
+    client: TestClient, job: dict[str, Any]
+) -> None:
+    from next_role.jobs.llm_extraction import LLMRequirementExtractor
+    from tests.unit.test_llm_extraction import FakeProvider, _json
+
+    provider = FakeProvider(_json(("Strong Python and FastAPI experience", "required")))
+    client.app.state.requirement_extractor = LLMRequirementExtractor(provider)  # type: ignore[attr-defined]
+    stored = client.post("/api/v1/jobs", json=job).json()["job"]
+    assert stored["extraction_method"] == "llm"
+    assert stored["extraction_notes"].startswith("fake")
+    assert [(r["terms"], r["extraction_method"]) for r in stored["requirements"]] == [
+        (["python", "fastapi"], "llm")
+    ]

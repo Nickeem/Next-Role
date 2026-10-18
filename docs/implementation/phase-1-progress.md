@@ -11,7 +11,7 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
 | 2 | Candidate knowledge base with provenance (facts, evidence sources, preferences) | done |
 | 3 | Manual job ingestion, rule-based requirement extraction, deduplication | done |
 | 4 | Deterministic matching, scoring, persisted assessments | done |
-| 5 | LLM provider abstraction (optional, schema-validated, with deterministic fallback) | pending |
+| 5 | LLM provider abstraction (optional, schema-validated, with deterministic fallback) | done |
 | 6 | Documentation, end-to-end demo, PR | pending |
 
 ## Decisions
@@ -58,6 +58,12 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
   skills detected once per fact; migration added.
 - Also fixed: a years requirement in an unrecognized area ("3+ years of Go") is `unknown`.
   Previously it fell back to total experience, an over-claim.
+- The LLM is optional and only *segments* descriptions. `LLMProvider` is a protocol with
+  Ollama and OpenAI-compatible HTTP adapters (httpx, no vendor SDKs). Outputs are validated
+  with Pydantic. Statements not found in the description are dropped. Classification stays
+  rule-based. Failures retry once, then fall back to the rules, and the reason goes in
+  `extraction_notes`. Only job text is sent, never candidate data. External providers need
+  `NEXT_ROLE_LLM_ALLOW_EXTERNAL=true`. Matching never uses the LLM (ADR 0003).
 
 ## Testing log
 
@@ -70,6 +76,8 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
 - M4: 69 tests pass (37 matching engine unit tests; assessment API with an end-to-end scenario
   on the synthetic candidate, a mismatched role, idempotency and re-assessment after
   verification, retired facts, empty requirements, 404s).
+- M5: 80 tests pass (fake-provider extraction, grounding, retry and fallback, prompt
+  delimiting, httpx MockTransport adapter tests, factory, API wiring).
 
 ## Known limitations / open issues
 

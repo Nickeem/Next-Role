@@ -15,7 +15,9 @@ from next_role.api.routes import assessments, candidates, health, jobs
 from next_role.config import Settings, get_settings
 from next_role.db import get_engine, get_sessionmaker
 from next_role.errors import ConflictError, DomainError, InvalidInputError, NotFoundError
-from next_role.jobs.service import rule_based_extractor
+from next_role.integrations.llm.factory import build_llm_provider
+from next_role.jobs.llm_extraction import LLMRequirementExtractor
+from next_role.jobs.service import RequirementExtractor, rule_based_extractor
 from next_role.logging_config import configure_logging, request_id_var
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,17 @@ _STATUS_BY_ERROR: dict[type[DomainError], int] = {
     ConflictError: status.HTTP_409_CONFLICT,
     InvalidInputError: status.HTTP_422_UNPROCESSABLE_CONTENT,
 }
+
+
+def _build_extractor(settings: Settings) -> RequirementExtractor:
+    provider = build_llm_provider(settings)
+    if provider is None:
+        return rule_based_extractor
+    logger.info(
+        "llm requirement extraction enabled",
+        extra={"provider": provider.name, "external": provider.external},
+    )
+    return LLMRequirementExtractor(provider)
 
 
 def create_app(
@@ -43,7 +56,7 @@ def create_app(
     app.state.session_factory = session_factory or get_sessionmaker(
         get_engine(settings.database_url)
     )
-    app.state.requirement_extractor = rule_based_extractor
+    app.state.requirement_extractor = _build_extractor(settings)
 
     @app.middleware("http")
     async def request_context(
