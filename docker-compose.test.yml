@@ -1,0 +1,19 @@
+# Disposable PostgreSQL for the automated test suite (data lives in tmpfs).
+#   docker compose -f docker-compose.test.yml up -d
+services:
+  test-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: next_role
+      POSTGRES_PASSWORD: next_role
+      POSTGRES_DB: next_role_test
+    ports:
+      - "127.0.0.1:5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U next_role -d next_role_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
