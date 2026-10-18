@@ -10,7 +10,7 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
 | 1 | Foundation: packaging, config, logging, DB, error handling, health, Alembic, Docker, tooling | done |
 | 2 | Candidate knowledge base with provenance (facts, evidence sources, preferences) | done |
 | 3 | Manual job ingestion, rule-based requirement extraction, deduplication | done |
-| 4 | Deterministic matching, scoring, persisted assessments | pending |
+| 4 | Deterministic matching, scoring, persisted assessments | done |
 | 5 | LLM provider abstraction (optional, schema-validated, with deterministic fallback) | pending |
 | 6 | Documentation, end-to-end demo, PR | pending |
 
@@ -45,6 +45,19 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
 - Requirement extraction is pluggable (`RequirementExtractor` protocol in `jobs/service.py`).
   The default is rule-based. Requirements supplied explicitly in the submission are
   classified but not extracted (`extraction_method = manual`).
+- Matching is a pure engine (`matching/engine.py`) over plain data views. The service layer
+  maps ORM records into those views and persists the results. The methodology, statuses,
+  weights, and tiers are documented in `docs/matching.md` (version `rules-v1`).
+- Assessments are immutable and idempotent, keyed by an input fingerprint (facts,
+  preferences, job, requirements, method version, `as_of`). `as_of` can be set in the
+  request, which keeps results deterministic.
+- Fixed the findings from the `/code-review` of the uncommitted M4 draft: inclusive day-based
+  durations; whole-word location matching; "or equivalent" no longer makes skills
+  alternatives; certification stopwords; work authorization is `unknown` (not `not_met`)
+  when sponsorship is unstated; undated experience and `degree_level=other` are `unknown`;
+  skills detected once per fact; migration added.
+- Also fixed: a years requirement in an unrecognized area ("3+ years of Go") is `unknown`.
+  Previously it fell back to total experience, an over-claim.
 
 ## Testing log
 
@@ -54,6 +67,9 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
 - M3: 38 tests pass (extraction unit tests, including a prompt-injection line in the example
   posting; ingestion, unknown fields, manual requirements, three dedup paths, validation,
   status filter).
+- M4: 69 tests pass (37 matching engine unit tests; assessment API with an end-to-end scenario
+  on the synthetic candidate, a mismatched role, idempotency and re-assessment after
+  verification, retired facts, empty requirements, 404s).
 
 ## Known limitations / open issues
 
