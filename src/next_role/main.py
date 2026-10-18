@@ -11,10 +11,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, sessionmaker
 
 from next_role.api.deps import require_api_key
-from next_role.api.routes import candidates, health
+from next_role.api.routes import candidates, health, jobs
 from next_role.config import Settings, get_settings
 from next_role.db import get_engine, get_sessionmaker
 from next_role.errors import ConflictError, DomainError, InvalidInputError, NotFoundError
+from next_role.jobs.service import rule_based_extractor
 from next_role.logging_config import configure_logging, request_id_var
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ def create_app(
     app.state.session_factory = session_factory or get_sessionmaker(
         get_engine(settings.database_url)
     )
+    app.state.requirement_extractor = rule_based_extractor
 
     @app.middleware("http")
     async def request_context(
@@ -98,4 +100,5 @@ def create_app(
     app.include_router(health.router)
     protected = [Depends(require_api_key)]
     app.include_router(candidates.router, prefix="/api/v1", dependencies=protected)
+    app.include_router(jobs.router, prefix="/api/v1", dependencies=protected)
     return app
