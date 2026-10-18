@@ -8,7 +8,7 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
 | # | Milestone | Status |
 | - | --------- | ------ |
 | 1 | Foundation: packaging, config, logging, DB, error handling, health, Alembic, Docker, tooling | done |
-| 2 | Candidate knowledge base with provenance (facts, evidence sources, preferences) | pending |
+| 2 | Candidate knowledge base with provenance (facts, evidence sources, preferences) | done |
 | 3 | Manual job ingestion, rule-based requirement extraction, deduplication | pending |
 | 4 | Deterministic matching, scoring, persisted assessments | pending |
 | 5 | LLM provider abstraction (optional, schema-validated, with deterministic fallback) | pending |
@@ -25,9 +25,22 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
 - Every `/api/v1` route requires an `X-API-Key` header. The app refuses to start without a key
   unless `NEXT_ROLE_AUTH_DISABLED=true`.
 
+- All candidate facts share one `candidate_facts` table, discriminated by `fact_type`, with
+  validated JSONB `attributes` (ADR 0002). Provenance has two parts: `verification_status`
+  (`self_reported` or `user_verified`) and evidence-source links. Support is derived from
+  them: `verified`, `evidenced`, or `unsupported`.
+- Editing a verified fact's content resets it to `self_reported`. Deleting a fact retires it
+  (soft delete).
+- `next_role.skills` is a shared, explicit skill vocabulary with aliases and families. Aliases
+  too ambiguous for free text (`go`, `r`, `rest`, ...) only normalize when given explicitly.
+- SQLAlchemy 2.1 no longer cascades objects into the session through backrefs, so new objects
+  are added with `session.add` explicitly.
+
 ## Testing log
 
 - M1: 6 tests pass (config validation, health, readiness, request-id propagation).
+- M2: 22 tests pass (candidate API, provenance, verification reset, cross-candidate evidence
+  rejection, migration round trip and model/migration drift check, skill vocabulary).
 
 ## Known limitations / open issues
 
