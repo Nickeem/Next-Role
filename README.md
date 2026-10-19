@@ -76,6 +76,8 @@ All settings are environment variables prefixed with `NEXT_ROLE_`. They are docu
 | [docs/roadmap.md](docs/roadmap.md) | Phases and current progress |
 | [docs/decisions/](docs/decisions/) | Architecture decision records |
 | [docs/implementation/phase-1-progress.md](docs/implementation/phase-1-progress.md) | Phase 1 working log |
+| [docs/features/review-workflow.md](docs/features/review-workflow.md) | Phase 2 specification: review workflow, notifications, workspace |
+| [docs/implementation/phase-2-progress.md](docs/implementation/phase-2-progress.md) | Phase 2 working log |
 
 ## Privacy
 

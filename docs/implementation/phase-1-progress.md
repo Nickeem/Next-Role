@@ -95,7 +95,7 @@ the work without repeating it. Branch: `feat/phase-1-foundation-matching`.
   with identical metadata. The raw postings are kept and the outcome says
   `linked_to_existing`.
 - LLM extraction runs inside `POST /jobs` (bounded by a timeout and one retry). Moving it to a
-  background worker is Phase 2.
+  background worker is planned for Phase 4 (see the roadmap).
 - Single shared API key: no per-user accounts or authorization yet.
 - Tests print a `StarletteDeprecationWarning` about httpx in the TestClient. It is harmless.
 - The LLM adapters are tested with mocked HTTP only. They have not been exercised against a
