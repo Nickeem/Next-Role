@@ -1,4 +1,4 @@
-import type { ReviewDetail, ReviewEvent } from "./types";
+import type { ReviewDetail, ReviewEvent, ReviewListItem } from "./types";
 
 // Synthetic data only.
 export function detailFixture(overrides: Partial<ReviewDetail["review"]> = {}): ReviewDetail {
@@ -112,3 +112,36 @@ export const eventsFixture: ReviewEvent[] = [
     created_at: "2026-10-19T10:00:00Z",
   },
 ];
+
+export function listItemFixture(id = "rev-1"): ReviewListItem {
+  return {
+    ...{
+    id: "rev-1",
+    candidate_id: "cand-1",
+    job_id: "job-1",
+    status: "postponed",
+    postpone_until: "2026-10-18T09:00:00Z",
+    follow_up_due: true,
+    version: 2,
+    created_at: "2026-10-10T10:00:00Z",
+    updated_at: "2026-10-11T10:00:00Z",
+    job: {
+      title: "Data Engineer",
+      company: "Contoso (fictional)",
+      location: "Remote",
+      work_arrangement: "remote",
+      status: "active",
+    },
+    assessment: {
+      id: "asm-1",
+      candidate_id: "cand-1",
+      job_id: "job-1",
+      score: 81,
+      tier: "strong",
+      has_blocking_gaps: false,
+      method_version: "rules-v1",
+      as_of: "2026-10-01",
+      created_at: "2026-10-10T10:00:00Z",
+    },
+  }, id };
+}

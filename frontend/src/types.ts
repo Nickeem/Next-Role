@@ -202,6 +202,12 @@ export interface NtfyStatus {
   last_error_at: string | null;
 }
 
+export interface CandidateSummary {
+  id: string;
+  full_name: string;
+  headline: string | null;
+}
+
 export interface SessionInfo {
   authenticated: boolean;
   method: string | null;

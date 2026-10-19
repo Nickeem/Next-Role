@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api";
+import { useCandidateId } from "../candidates";
 import { Empty, ErrorState, Loading } from "../components/States";
 import { EVENT_LABEL, formatDateTime, jobLabel, STATUS_LABEL } from "../labels";
 import { useLoad } from "../useLoad";
@@ -11,9 +12,21 @@ const PAGE_SIZE = 30;
 export function Activity() {
   const [offset, setOffset] = useState(0);
   const [onlyMine, setOnlyMine] = useState(false);
-  const key = `${offset}:${onlyMine}`;
+  const candidateId = useCandidateId();
+  const [scopedTo, setScopedTo] = useState(candidateId);
+  if (scopedTo !== candidateId) {
+    setScopedTo(candidateId);
+    setOffset(0);
+  }
+  const key = `${candidateId}:${offset}:${onlyMine}`;
   const page = useLoad(
-    () => api.activity({ limit: PAGE_SIZE, offset, actor: onlyMine ? "operator" : undefined }),
+    () =>
+      api.activity({
+        candidate_id: candidateId,
+        limit: PAGE_SIZE,
+        offset,
+        actor: onlyMine ? "operator" : undefined,
+      }),
     key,
   );
 

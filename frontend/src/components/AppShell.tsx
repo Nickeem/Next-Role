@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
+import { useCandidate } from "../candidates";
 import { Icon, type IconName } from "./Icons";
 
 const NAV: { to: string; label: string; icon: IconName; end?: boolean }[] = [
@@ -12,6 +13,25 @@ const NAV: { to: string; label: string; icon: IconName; end?: boolean }[] = [
 
 function navClass(base: string) {
   return ({ isActive }: { isActive: boolean }) => (isActive ? `${base} ${base}--active` : base);
+}
+
+function CandidatePicker() {
+  const id = useId();
+  const { candidates, selected, select } = useCandidate();
+  // With one candidate there is nothing to choose and nothing to confuse.
+  if (candidates.length < 2 || !selected) return null;
+  return (
+    <div className="field field--inline candidate-picker">
+      <label htmlFor={id}>Candidate</label>
+      <select id={id} value={selected.id} onChange={(e) => select(e.target.value)}>
+        {candidates.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.full_name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -50,6 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </NavLink>
               ))}
             </nav>
+            <CandidatePicker />
           </header>
           <main id="main" className="main" tabIndex={-1}>
             {children}

@@ -2,17 +2,21 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
+import { CandidateProvider } from "../candidates";
 import { eventsFixture, detailFixture } from "../fixtures";
 import { mockFetch } from "../test-utils";
+import type { CandidateSummary } from "../types";
 import { ReviewDetail } from "./ReviewDetail";
 
-function renderDetail() {
+function renderDetail(candidates: CandidateSummary[] = []) {
   return render(
-    <MemoryRouter initialEntries={["/reviews/rev-1"]}>
-      <Routes>
-        <Route path="/reviews/:id" element={<ReviewDetail />} />
-      </Routes>
-    </MemoryRouter>,
+    <CandidateProvider candidates={candidates}>
+      <MemoryRouter initialEntries={["/reviews/rev-1"]}>
+        <Routes>
+          <Route path="/reviews/:id" element={<ReviewDetail />} />
+        </Routes>
+      </MemoryRouter>
+    </CandidateProvider>,
   );
 }
 
@@ -109,4 +113,35 @@ test("escape closes the dialog without deciding", async () => {
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+});
+
+test("a history load failure is shown with a retry, not hidden", async () => {
+  const user = userEvent.setup();
+  let fail = true;
+  mockFetch({
+    "GET /api/v1/reviews/rev-1": () => ({ body: detailFixture() }),
+    "GET /api/v1/reviews/rev-1/events": () =>
+      fail ? { status: 503, body: { detail: "Database unavailable" } } : { body: eventsFixture },
+  });
+  renderDetail();
+
+  const history = await screen.findByRole("region", { name: "History" });
+  expect(within(history).getByRole("alert")).toHaveTextContent("Database unavailable");
+  fail = false;
+  await user.click(within(history).getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(screen.queryByText("Database unavailable")).toBeNull());
+  const loaded = screen.getByRole("region", { name: "History" });
+  expect(within(loaded).getAllByRole("listitem").length).toBeGreaterThan(0);
+});
+
+test("with several candidates the review names whose it is", async () => {
+  mockFetch({
+    "GET /api/v1/reviews/rev-1": () => ({ body: detailFixture() }),
+    "GET /api/v1/reviews/rev-1/events": () => ({ body: eventsFixture }),
+  });
+  renderDetail([
+    { id: "cand-2", full_name: "Sam Sample", headline: null },
+    { id: "cand-1", full_name: "Alex Example", headline: null },
+  ]);
+  expect(await screen.findByText("Alex Example")).toBeVisible();
 });
