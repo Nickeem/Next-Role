@@ -37,7 +37,8 @@ HTTP client ──► FastAPI routes (api/) ──► domain services ──► 
 | `integrations/ntfy.py` | ntfy HTTP publisher (httpx) | config, notifications |
 | `worker.py` | `python -m next_role.worker`: postponed-review reminders and outbox dispatch | review, notifications, integrations |
 | `integrations/llm/` | `LLMProvider` protocol, Ollama and OpenAI-compatible HTTP adapters | config, httpx |
-| `api/` | FastAPI routes, dependencies (session, API-key auth) | services |
+| `auth/` | Operator browser sessions: login, lookup, logout, login throttle | db |
+| `api/` | FastAPI routes, dependencies (database session, API-key or cookie auth with CSRF) | services |
 | `main.py` | App factory: wiring, middleware, error handlers | everything |
 
 Boundaries:
@@ -141,8 +142,18 @@ assessment in SQL so the queue can filter and sort server-side.
 
 ## Security and safety
 
-- **Authentication.** An API key in the `X-API-Key` header, compared in constant time. The
-  app refuses to start without a key unless `NEXT_ROLE_AUTH_DISABLED=true` is set
+- **Authentication** (`api/deps.py`, ADR 0005). Every `/api/v1` route except
+  `/auth/*` requires one of:
+  - an API key in the `X-API-Key` header, compared in constant time (scripts). A key that is
+    present but wrong is rejected without falling back to the cookie;
+  - a browser session cookie (`next_role_session`: `HttpOnly`, `Secure`, `SameSite=Strict`)
+    from `POST /auth/login` with `NEXT_ROLE_UI_PASSWORD`. Only a SHA-256 of the token is
+    stored (`operator_sessions`), sessions expire after `NEXT_ROLE_SESSION_TTL_HOURS`, and
+    logout deletes the row. State-changing requests made with the cookie must send the
+    session's `X-CSRF-Token`. Failed logins are throttled per client (5 per 5 minutes, in
+    memory).
+
+  The app refuses to start without an API key unless `NEXT_ROLE_AUTH_DISABLED=true` is set
   explicitly. Health endpoints are unauthenticated.
 - **Untrusted job text.**
   - Rule-based extraction only parses the text.

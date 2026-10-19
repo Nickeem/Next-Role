@@ -9,7 +9,9 @@ export API=http://localhost:8000
 export KEY=...   # NEXT_ROLE_API_KEY from .env
 ```
 
-Every `/api/v1` request needs `-H "X-API-Key: $KEY"`. Without it, the API returns `401`.
+Every `/api/v1` request needs `-H "X-API-Key: $KEY"`. Without it, the API returns `401`. The web workspace uses a
+session cookie from `POST /api/v1/auth/login` instead, plus an `X-CSRF-Token` header on
+writes (see `docs/architecture.md`, Security).
 
 ## 1. Populate the knowledge base
 

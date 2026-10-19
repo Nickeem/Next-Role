@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     api_key: SecretStr | None = None
     # Explicit opt-out for local experimentation only; never enable on an exposed server.
     auth_disabled: bool = False
+    # Password for browser login (cookie sessions). Unset disables browser login.
+    ui_password: SecretStr | None = None
+    session_ttl_hours: float = Field(default=12.0, gt=0, le=24 * 30)
+    # Keep true in production. Browsers accept Secure cookies on http://localhost.
+    session_cookie_secure: bool = True
 
     # Maximum accepted job description length, in characters.
     max_job_description_chars: int = Field(default=50_000, ge=1_000)
@@ -66,6 +71,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "NEXT_ROLE_API_KEY must be set (or NEXT_ROLE_AUTH_DISABLED=true for local use)"
             )
+        if self.ui_password is not None and len(self.ui_password.get_secret_value()) < 12:
+            raise ValueError("NEXT_ROLE_UI_PASSWORD must be at least 12 characters")
         if self.llm_provider is not LLMProviderName.NONE:
             if not self.llm_base_url or not self.llm_model:
                 raise ValueError("NEXT_ROLE_LLM_BASE_URL and NEXT_ROLE_LLM_MODEL are required")

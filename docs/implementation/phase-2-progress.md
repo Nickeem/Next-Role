@@ -12,7 +12,7 @@ can resume the work without repeating it. The specification is
 | 2 | `feat/review-workflow-core` | Review states, decision events, outbox, backfill | PR open |
 | 3 | `feat/review-api` | Queue, details, decisions, activity, preferences routes | PR open |
 | 4 | `feat/ntfy-worker` | Publisher, dispatcher, reminders, test notification, Compose worker | PR open |
-| 5 | `feat/auth-sessions` | Password login, cookie sessions, CSRF | not started |
+| 5 | `feat/auth-sessions` | Password login, cookie sessions, CSRF | PR open |
 | 6 | `feat/review-workspace` | React SPA | not started |
 | 7 | `chore/phase-2-hardening` | Security, accessibility, runbook, release checklist | not started |
 
@@ -51,6 +51,11 @@ Each PR is based on the previous one until it merges.
   Stored errors are an HTTP status or exception class only.
 - The test notification is limited to one per minute (429) and needs ntfy enabled (409).
 - The worker lowers the `httpx` logger to WARNING, because request logs include the topic URL.
+- PR 5: `require_auth` replaces `require_api_key`. The CSRF token is random per session and
+  stored as-is (it is not a credential on its own); the session token is stored as a SHA-256.
+  `GET /auth/session` returns the CSRF token so the SPA can recover it after a reload.
+  Unauthenticated requests now say "Not authenticated" instead of "Missing or invalid API
+  key" (still 401). The login throttle is in memory per API process.
 
 ## Testing log
 
@@ -77,3 +82,7 @@ Each PR is based on the previous one until it merges.
   ("HTTP 401", one attempt); with ntfy stopped, the row stayed `pending` with a backoff
   ("ConnectError"). `docker compose up --build --wait` started db, migrate, api, and worker;
   readiness reported `0006_outbox_cancelled`.
+- PR 5: 200 tests pass (10 integration tests: cookie flags and hashed storage, wrong
+  password and throttle, reads with the cookie, CSRF required on writes, CSRF recovery after
+  reload, logout revokes a replayed cookie, expiry, API key without CSRF, a wrong API key does
+  not fall back to the cookie, login unavailable without a password, short password refused).

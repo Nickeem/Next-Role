@@ -10,8 +10,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, sessionmaker
 
-from next_role.api.deps import require_api_key
-from next_role.api.routes import assessments, candidates, health, jobs, notifications, reviews
+from next_role.api.deps import require_auth
+from next_role.api.routes import (
+    assessments,
+    auth,
+    candidates,
+    health,
+    jobs,
+    notifications,
+    reviews,
+)
+from next_role.auth.service import LoginThrottle
 from next_role.config import Settings, get_settings
 from next_role.db import get_engine, get_sessionmaker
 from next_role.errors import (
@@ -64,6 +73,7 @@ def create_app(
         get_engine(settings.database_url)
     )
     app.state.requirement_extractor = _build_extractor(settings)
+    app.state.login_throttle = LoginThrottle()
 
     @app.middleware("http")
     async def request_context(
@@ -118,7 +128,8 @@ def create_app(
         )
 
     app.include_router(health.router)
-    protected = [Depends(require_api_key)]
+    app.include_router(auth.router, prefix="/api/v1")
+    protected = [Depends(require_auth)]
     app.include_router(candidates.router, prefix="/api/v1", dependencies=protected)
     app.include_router(jobs.router, prefix="/api/v1", dependencies=protected)
     app.include_router(assessments.router, prefix="/api/v1", dependencies=protected)
