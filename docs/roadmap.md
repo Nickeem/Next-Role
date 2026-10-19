@@ -43,7 +43,7 @@ Pull requests, in order:
 - [x] ntfy worker: publisher adapter, outbox dispatcher with retries, postponed-review
       reminders, test notification, Compose `worker` service.
 - [x] Session authentication for the browser (password login, cookie session, CSRF).
-- [ ] Web workspace: review queue, assessment detail, decisions, activity, settings.
+- [x] Web workspace: review queue, assessment detail, decisions, activity, settings.
 - [ ] Hardening: security and accessibility passes, runbook, release checklist.
 
 ## Later phases (high level, not yet planned in detail)

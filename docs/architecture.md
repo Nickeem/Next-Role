@@ -39,7 +39,9 @@ HTTP client ──► FastAPI routes (api/) ──► domain services ──► 
 | `integrations/llm/` | `LLMProvider` protocol, Ollama and OpenAI-compatible HTTP adapters | config, httpx |
 | `auth/` | Operator browser sessions: login, lookup, logout, login throttle | db |
 | `api/` | FastAPI routes, dependencies (database session, API-key or cookie auth with CSRF) | services |
+| `api/spa.py` | Serves the built web workspace with an `index.html` fallback and a strict CSP | — |
 | `main.py` | App factory: wiring, middleware, error handlers | everything |
+| `frontend/` | Vite + React SPA: queue, review detail and decisions, activity, settings | API |
 
 Boundaries:
 
@@ -165,11 +167,16 @@ assessment in SQL so the queue can filter and sort server-side.
   - Validation errors never echo submitted input.
   - Logs carry IDs and counts only.
   - Candidate data never goes to an LLM, and external providers need an explicit opt-in.
+- **Web workspace.** Served from the API's origin (`api/spa.py`) with a strict
+  Content-Security-Policy (`script-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options:
+  DENY`, and `Referrer-Policy: no-referrer` on every response. Job descriptions are rendered
+  as text, never HTML, and source links are shown only for `http(s)` URLs.
 - **Input limits.** Description length is capped (`NEXT_ROLE_MAX_JOB_DESCRIPTION_CHARS`),
   and unknown fields are rejected (`extra="forbid"`).
 
 ## Not yet implemented
 
-There is no frontend yet, no job discovery, documents, or
-applications, and no multi-user accounts. The data model is designed so that each can be added as new tables that reference
-opportunities, candidates, and assessments, without restructuring existing ones.
+There is no job discovery, document generation, or application tracking, and there are no
+multi-user accounts. The data model is designed so that each can be added as new tables that
+reference opportunities, candidates, reviews, and assessments, without restructuring existing
+ones.

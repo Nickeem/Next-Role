@@ -27,8 +27,17 @@ explicit human approval (see [AGENTS.md](AGENTS.md) and [docs/roadmap.md](docs/r
 - **Persistence.** Assessments are stored as immutable, idempotent snapshots and can be
   retrieved later.
 
-Out of scope for Phase 1: automated job discovery, notifications, document generation,
-applications, and a frontend.
+## Phase 2: review and approval
+
+- **Review workflow.** Each assessed job gets a review: shortlist, postpone to a date,
+  reject, or approve for drafting, with confirmation for approve and reject, a reason when you
+  go against the assessment, and an append-only history. Approval only records your intent;
+  nothing is generated or sent.
+- **Notifications.** A worker publishes privacy-preserving alerts (a role is ready, a postponed
+  role is due) to your own ntfy server, with retries and visible failures.
+- **Web workspace.** Responsive, keyboard-accessible, password-protected.
+
+Out of scope so far: automated job discovery, document generation, and applications.
 
 ## Prerequisites
 
@@ -45,8 +54,15 @@ docker compose up -d --build --wait     # starts db, runs migrations, starts the
 curl http://localhost:8000/health/ready
 ```
 
-The API listens on `http://localhost:8000`, with interactive OpenAPI docs at `/docs`. Every
-`/api/v1` route requires an `X-API-Key` header matching `NEXT_ROLE_API_KEY`.
+The app listens on `http://localhost:8000`:
+
+- **Web workspace** at `/`: review queue, assessment details, decisions, activity, and
+  notification settings. Set `NEXT_ROLE_UI_PASSWORD` (at least 12 characters) in `.env` to
+  sign in.
+- **API** under `/api/v1`, with interactive OpenAPI docs at `/docs`. Scripts authenticate with
+  an `X-API-Key` header matching `NEXT_ROLE_API_KEY`.
+- **Worker** (separate container) publishes ntfy notifications when configured; see
+  [docs/operations/ntfy.md](docs/operations/ntfy.md).
 
 Run the end-to-end demo against the stack, using synthetic data:
 

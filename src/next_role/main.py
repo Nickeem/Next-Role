@@ -4,6 +4,7 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -20,6 +21,7 @@ from next_role.api.routes import (
     notifications,
     reviews,
 )
+from next_role.api.spa import mount_spa
 from next_role.auth.service import LoginThrottle
 from next_role.config import Settings, get_settings
 from next_role.db import get_engine, get_sessionmaker
@@ -87,6 +89,9 @@ def create_app(
         finally:
             request_id_var.reset(token)
         response.headers["X-Request-ID"] = request_id
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        # Leaving the app (e.g. opening a job's source link) must not leak review URLs.
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
         logger.info(
             "request completed",
             extra={
@@ -135,4 +140,7 @@ def create_app(
     app.include_router(assessments.router, prefix="/api/v1", dependencies=protected)
     app.include_router(reviews.router, prefix="/api/v1", dependencies=protected)
     app.include_router(notifications.router, prefix="/api/v1", dependencies=protected)
+    if settings.static_dir:
+        # Registered last: the catch-all must not shadow API, health, or docs routes.
+        mount_spa(app, Path(settings.static_dir))
     return app

@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # sending data off the server an explicit operator decision.
     llm_allow_external: bool = False
 
+    # Built web workspace (frontend/dist). Unset: the API runs without the UI.
+    static_dir: str | None = None
+
     # Public URL of this app, used for click-through links in notifications.
     public_base_url: str | None = None
 

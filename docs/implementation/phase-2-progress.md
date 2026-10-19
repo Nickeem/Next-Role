@@ -13,7 +13,7 @@ can resume the work without repeating it. The specification is
 | 3 | `feat/review-api` | Queue, details, decisions, activity, preferences routes | PR open |
 | 4 | `feat/ntfy-worker` | Publisher, dispatcher, reminders, test notification, Compose worker | PR open |
 | 5 | `feat/auth-sessions` | Password login, cookie sessions, CSRF | PR open |
-| 6 | `feat/review-workspace` | React SPA | not started |
+| 6 | `feat/review-workspace` | React SPA | PR open |
 | 7 | `chore/phase-2-hardening` | Security, accessibility, runbook, release checklist | not started |
 
 Each PR is based on the previous one until it merges.
@@ -56,6 +56,14 @@ Each PR is based on the previous one until it merges.
   `GET /auth/session` returns the CSRF token so the SPA can recover it after a reload.
   Unauthenticated requests now say "Not authenticated" instead of "Missing or invalid API
   key" (still 401). The login throttle is in memory per API process.
+- PR 6: dependencies pinned to the newest patch within majors known to be stable here
+  (React 19.3, React Router 7.18, Vite 7.3, TypeScript 5.9, Vitest 3.2). TypeScript 7, Vite
+  8, and Vitest 5 were available but newer than this work was validated against.
+  `@testing-library/jest-dom` is 6.9.1 because 6.10.0 was deprecated as breaking.
+- No CSS framework or component library: tokens and layout are in `frontend/src/styles.css`.
+- The review table becomes stacked cards below 720px. `position: sticky` cannot keep the
+  side-column decision panel in view while scrolling the main column on mobile, so phones get
+  a fixed "Your decision" button that jumps to the panel.
 
 ## Testing log
 
@@ -86,3 +94,17 @@ Each PR is based on the previous one until it merges.
   password and throttle, reads with the cookie, CSRF required on writes, CSRF recovery after
   reload, logout revokes a replayed cookie, expiry, API key without CSRF, a wrong API key does
   not fall back to the cookie, login unavailable without a password, short password refused).
+- PR 6: 209 Python tests pass (+9 SPA-serving tests: client routes with CSP, cached assets,
+  traversal, API/health/docs not shadowed, missing index fails fast). 18 frontend tests pass
+  (override-rule parity with Python, CSRF only on writes, query encoding and errors, detail
+  page labels and evidence, "Evidence unavailable", untrusted description and `javascript:`
+  link, approve requires confirmation and reason, 409 reloads, Escape cancels, queue
+  rendering, filters sent to the API, empty state).
+- PR 6 manual check: `docker compose up --build` (frontend built in the image), synthetic
+  data seeded, then a Playwright (v1.55 Docker image) run against the real stack at 1440px
+  and 390px: wrong password shows an error; login; queue; detail; approve through the dialog;
+  history shows the decision; Decisions, Activity, Settings render; first Tab stop is the skip
+  link; no horizontal overflow on mobile; no console errors other than the deliberate 401.
+  Fixed from the screenshots: missing space in "AI: Moderate match" in the table, and a
+  misleading "source fact unavailable" on preference-based evidence. WCAG contrast checked
+  for text, pills, and buttons (all at least 4.5:1).
