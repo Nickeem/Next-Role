@@ -1,8 +1,8 @@
 # Architecture
 
-This page describes the implemented system as of Phase 1. The direction for later phases is
-in [roadmap.md](roadmap.md), and the decisions behind this design are in
-[decisions/](decisions/).
+This page describes the implemented system: Phase 1 plus the Phase 2 work merged so far. The
+direction for later phases is in [roadmap.md](roadmap.md), and the decisions behind this
+design are in [decisions/](decisions/).
 
 ## Overview
 
@@ -31,7 +31,9 @@ HTTP client ──► FastAPI routes (api/) ──► domain services ──► 
 | `skills.py` | Shared skill vocabulary: canonical names, aliases, families, free-text detection | — |
 | `candidates/` | Knowledge base: candidates, facts, evidence sources, preferences, provenance | db, skills |
 | `jobs/` | Manual ingestion, normalization, deduplication, requirement extraction | db, skills, integrations (via protocol) |
-| `matching/` | Pure matching engine, assessment persistence, and retrieval | candidates, jobs |
+| `matching/` | Pure matching engine, assessment persistence, and retrieval | candidates, jobs, review |
+| `review/` | Candidate decisions: pure state machine (`workflow.py`), reviews, append-only events | matching, notifications |
+| `notifications/` | Transactional outbox and notification preferences | db |
 | `integrations/llm/` | `LLMProvider` protocol, Ollama and OpenAI-compatible HTTP adapters | config, httpx |
 | `api/` | FastAPI routes, dependencies (session, API-key auth) | services |
 | `main.py` | App factory: wiring, middleware, error handlers | everything |
@@ -59,6 +61,11 @@ job_opportunities ─┬─< job_postings        (raw submissions, verbatim)
                    └─< job_requirements    (classified statements)
 
 suitability_assessments (candidate × opportunity) ─< requirement_assessments ─> job_requirements
+
+opportunity_reviews (candidate × opportunity) ─< review_events
+       └─> latest_assessment_id                     └─> assessment_id
+notification_outbox ─> opportunity_reviews (optional)
+notification_preferences (one row per operator)
 ```
 
 - **`candidate_facts`** is a single table for all fact types, discriminated by `fact_type`.
@@ -79,6 +86,14 @@ suitability_assessments (candidate × opportunity) ─< requirement_assessments 
   candidate × job), which makes runs idempotent. **`requirement_assessments`** store each
   requirement's status, weight, credit, explanation, and a JSONB snapshot of the cited
   evidence.
+- **`opportunity_reviews`** holds the candidate's current decision for each candidate ×
+  opportunity: `status`, `postpone_until`, `latest_assessment_id`, and a `version` used to
+  reject stale changes. **`review_events`** is its append-only history (a trigger rejects
+  updates): event type, previous and new status, the assessment the decision was based on,
+  reason, actor, and request ID. States and transitions are in
+  [features/review-workflow.md](features/review-workflow.md) (ADR 0004).
+- **`notification_outbox`** holds queued notifications with a unique `event_key`, a payload
+  free of personal data, delivery status, attempts, and the last redacted error.
 
 All tables use UUID primary keys and timezone-aware timestamps. Enums are stored as
 constrained strings. Schema changes go through Alembic migrations (`migrations/versions/`). A
@@ -92,6 +107,17 @@ test checks that the ORM models and the migrated schema have not drifted apart.
    exists, it is returned (HTTP 200).
 3. Otherwise, the ORM records are converted into immutable views, `engine.assess()` evaluates
    each requirement and the preferences, and the result is persisted (HTTP 201).
+4. In the same transaction, `review.service.record_assessment` opens the candidate's review
+   in `pending_review` and queues a `review.ready` notification, or, if a review exists,
+   points it at the new assessment without changing the candidate's decision.
+
+## Decisions
+
+`review.service.apply_decision` locks the review row, compares the client's
+`expected_version`, validates the action with the pure `review.workflow.decide`, updates the
+state, and appends a `review_events` row, all in one transaction. Invalid transitions raise
+`ConflictError` (409); missing confirmation, reason, or postpone date raise
+`InvalidInputError` (422). Decisions never queue notifications.
 
 ## Security and safety
 
@@ -113,7 +139,7 @@ test checks that the ORM models and the migrated schema have not drifted apart.
 
 ## Not yet implemented
 
-There are no background workers or task queue, no workflow events table, no job discovery,
-notifications, documents, applications, or approvals, no multi-user accounts, and no
-frontend. The data model is designed so that each can be added as new tables that reference
+There are no background workers yet: queued notifications are not published until the
+worker lands. There are no review API routes or frontend yet, no job discovery, documents, or
+applications, and no multi-user accounts. The data model is designed so that each can be added as new tables that reference
 opportunities, candidates, and assessments, without restructuring existing ones.
