@@ -14,7 +14,7 @@ can resume the work without repeating it. The specification is
 | 4 | `feat/ntfy-worker` | Publisher, dispatcher, reminders, test notification, Compose worker | PR open |
 | 5 | `feat/auth-sessions` | Password login, cookie sessions, CSRF | PR open |
 | 6 | `feat/review-workspace` | React SPA | PR open |
-| 7 | `chore/phase-2-hardening` | Security, accessibility, runbook, release checklist | not started |
+| 7 | `chore/phase-2-hardening` | Security, accessibility, runbook, release checklist | PR open |
 
 Each PR is based on the previous one until it merges.
 
@@ -64,6 +64,9 @@ Each PR is based on the previous one until it merges.
 - The review table becomes stacked cards below 720px. `position: sticky` cannot keep the
   side-column decision panel in view while scrolling the main column on mobile, so phones get
   a fixed "Your decision" button that jumps to the panel.
+- PR 7: the decision dialog traps Tab focus. The worker writes a heartbeat used by a Compose
+  healthcheck. `scripts/demo.sh` now shows the review step. Added the operations runbook and
+  the release checklist.
 
 ## Testing log
 
@@ -74,7 +77,20 @@ Each PR is based on the previous one until it merges.
 
 ## Known limitations / open issues
 
-- None yet.
+- Not yet tested against the maintainer's own ntfy server (needs its URL and token); tested
+  against a local ntfy v2.11.0 container with the recommended ACLs.
+- Not yet checked with a real screen reader; checked by role/label queries in tests, keyboard
+  navigation in Playwright, and contrast calculations.
+- The login throttle is per API process and keyed by client address; behind a reverse proxy,
+  uvicorn must trust forwarded headers (runbook).
+- The API port is published on all interfaces by default (unchanged from Phase 1); the
+  runbook explains binding it to loopback behind a proxy.
+- Delivery is at least once; a crash between ntfy accepting a message and the commit resends
+  it.
+- `frontend/src/types.ts` is maintained by hand; generating it from OpenAPI is a possible
+  follow-up.
+- Phase 3 must check the current review state and its assessment before drafting, and block
+  revoking an approval once drafting has started.
 - PR 3: 160 tests pass (11 API tests: queue contents and sort, filters and search,
   pagination, rejected hidden by default, detail, decision flow and history, 409/422/404
   errors, weak-tier override, summary and due follow-ups, activity filters, preferences,
@@ -108,3 +124,6 @@ Each PR is based on the previous one until it merges.
   Fixed from the screenshots: missing space in "AI: Moderate match" in the table, and a
   misleading "source fact unavailable" on preference-based evidence. WCAG contrast checked
   for text, pills, and buttons (all at least 4.5:1).
+- PR 7: 210 Python tests, 19 frontend tests pass (+ heartbeat, + dialog focus trap). On the
+  Compose stack, db, api, and worker were all healthy, and `scripts/demo.sh` opened and
+  shortlisted the review with the expected history.

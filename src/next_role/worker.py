@@ -7,9 +7,12 @@ image and configuration as the API. With ntfy disabled it stays idle.
 import argparse
 import logging
 import signal
+import tempfile
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import FrameType
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -23,6 +26,9 @@ from next_role.notifications.publisher import NotificationPublisher
 from next_role.review import service as review_service
 
 logger = logging.getLogger(__name__)
+
+# Touched after every loop iteration; the Compose healthcheck checks its age.
+HEARTBEAT = Path(tempfile.gettempdir()) / "next-role-worker.heartbeat"
 
 
 def _now() -> datetime:
@@ -57,7 +63,14 @@ def run_cycle(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m next_role.worker")
     parser.add_argument("--once", action="store_true", help="run one cycle and exit")
+    parser.add_argument(
+        "--check", action="store_true", help="exit 0 if the running worker loop is alive"
+    )
     args = parser.parse_args(argv)
+    if args.check:
+        # Three missed polls (or 60 s, whichever is longer) means the loop is stuck.
+        poll = get_settings().worker_poll_seconds
+        return 0 if healthy(max(60.0, 3 * poll)) else 1
 
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_json)
@@ -88,10 +101,19 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:
                 # A failed cycle (e.g. database restarting) is retried on the next poll.
                 logger.exception("worker cycle failed")
+        HEARTBEAT.touch()
         if args.once:
             break
         stop.wait(settings.worker_poll_seconds)
     return 0
+
+
+def healthy(max_age_seconds: float) -> bool:
+    """Whether the loop has completed an iteration recently (used by --check)."""
+    try:
+        return time.time() - HEARTBEAT.stat().st_mtime <= max_age_seconds
+    except FileNotFoundError:
+        return False
 
 
 if __name__ == "__main__":

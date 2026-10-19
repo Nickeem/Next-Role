@@ -35,6 +35,7 @@ export function DecisionDialog({ action, version, tier, hasBlockingGaps, onSubmi
   const reasonId = useId();
   const dateId = useId();
   const firstField = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [reason, setReason] = useState("");
   const [until, setUntil] = useState(() => {
     const next = new Date(Date.now() + 7 * 24 * 3600 * 1000);
@@ -52,6 +53,21 @@ export function DecisionDialog({ action, version, tier, hasBlockingGaps, onSubmi
     firstField.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      // Keep keyboard focus inside the modal.
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input, textarea, select, a[href]",
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => {
@@ -89,7 +105,7 @@ export function DecisionDialog({ action, version, tier, hasBlockingGaps, onSubmi
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <div ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <form onSubmit={submit}>
           <h2 id={titleId} className="dialog__title">
             {ACTION_LABEL[action]}?

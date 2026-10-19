@@ -110,3 +110,21 @@ test("escape closes the dialog without deciding", async () => {
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
 });
+
+test("keyboard focus stays inside the dialog", async () => {
+  const user = userEvent.setup();
+  mockFetch({
+    "GET /api/v1/reviews/rev-1": () => ({ body: detailFixture() }),
+    "GET /api/v1/reviews/rev-1/events": () => ({ body: eventsFixture }),
+  });
+  renderDetail();
+  await user.click(await screen.findByRole("button", { name: "Reject" }));
+  const dialog = screen.getByRole("dialog");
+  expect(within(dialog).getByLabelText(/Reason/)).toHaveFocus();
+  for (let i = 0; i < 5; i += 1) {
+    await user.tab();
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+  }
+  await user.tab({ shift: true });
+  expect(dialog).toContainElement(document.activeElement as HTMLElement);
+});
