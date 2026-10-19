@@ -305,7 +305,7 @@ def upgrade() -> None:
             ["review_id"],
             ["opportunity_reviews.id"],
             name=op.f("fk_review_events_review_id_opportunity_reviews"),
-            ondelete="CASCADE",
+            ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_review_events")),
     )
@@ -319,7 +319,7 @@ def upgrade() -> None:
 
     op.execute(APPEND_ONLY_FUNCTION)
     op.execute(
-        "CREATE TRIGGER review_events_append_only BEFORE UPDATE ON review_events "
+        "CREATE TRIGGER review_events_append_only BEFORE UPDATE OR DELETE ON review_events "
         "FOR EACH ROW EXECUTE FUNCTION review_events_append_only()"
     )
     op.execute(BACKFILL_REVIEWS)

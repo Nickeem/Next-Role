@@ -1,7 +1,8 @@
 """Persistence for candidate reviews of assessed opportunities.
 
 ``opportunity_reviews`` holds the current state for each candidate and opportunity pair.
-``review_events`` is its append-only history: a database trigger rejects updates.
+``review_events`` is its append-only history: a database trigger rejects updates
+and deletes, and the foreign key to the review restricts deletes so cascades cannot remove it.
 """
 
 import uuid
@@ -65,7 +66,7 @@ class ReviewEvent(IdMixin, Base):
     __tablename__ = "review_events"
 
     review_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("opportunity_reviews.id", ondelete="CASCADE"), index=True
+        ForeignKey("opportunity_reviews.id", ondelete="RESTRICT"), index=True
     )
     event_type: Mapped[ReviewEventType] = mapped_column(_enum(ReviewEventType, "review_event_type"))
     previous_status: Mapped[ReviewStatus | None] = mapped_column(
