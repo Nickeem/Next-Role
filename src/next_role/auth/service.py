@@ -35,34 +35,55 @@ class NewSession:
 class LoginThrottle:
     """At most ``max_failures`` failed logins per client within ``window`` seconds.
 
-    In memory, per API process: enough for a single-operator deployment.
+    In memory, per API process: enough for a single-operator deployment. Each attempt is
+    counted before the password is checked and only forgiven on success, so concurrent
+    requests cannot all slip past the limit. At most ``max_clients`` addresses are tracked;
+    stale ones are dropped first, then the oldest.
     """
 
-    def __init__(self, max_failures: int = 5, window: float = 300.0) -> None:
+    def __init__(
+        self, max_failures: int = 5, window: float = 300.0, max_clients: int = 10_000
+    ) -> None:
         self.max_failures = max_failures
         self.window = window
+        self.max_clients = max_clients
         self._failures: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
 
-    def _recent(self, client: str, now: float) -> deque[float]:
-        failures = self._failures.setdefault(client, deque())
+    def _prune(self, failures: deque[float], now: float) -> None:
         while failures and now - failures[0] > self.window:
             failures.popleft()
-        return failures
 
-    def check(self, client: str) -> None:
-        with self._lock:
-            if len(self._recent(client, time.monotonic())) >= self.max_failures:
-                raise RateLimitedError("Too many failed logins; try again in a few minutes")
+    def _evict(self, now: float) -> None:
+        for client in list(self._failures):
+            self._prune(self._failures[client], now)
+            if not self._failures[client]:
+                del self._failures[client]
+        while len(self._failures) >= self.max_clients:
+            del self._failures[next(iter(self._failures))]
 
-    def failed(self, client: str) -> None:
+    def attempt(self, client: str) -> None:
+        """Count an attempt, or raise RateLimitedError if the client is over the limit."""
         with self._lock:
             now = time.monotonic()
-            self._recent(client, now).append(now)
+            failures = self._failures.get(client)
+            if failures is not None:
+                self._prune(failures, now)
+            if failures and len(failures) >= self.max_failures:
+                raise RateLimitedError("Too many failed logins; try again in a few minutes")
+            if failures is None:
+                if len(self._failures) >= self.max_clients:
+                    self._evict(now)
+                failures = self._failures[client] = deque()
+            failures.append(now)
 
     def succeeded(self, client: str) -> None:
         with self._lock:
             self._failures.pop(client, None)
+
+    def tracked_clients(self) -> int:
+        with self._lock:
+            return len(self._failures)
 
 
 def login(

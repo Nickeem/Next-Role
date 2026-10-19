@@ -52,7 +52,7 @@ def login(
         raise ConflictError("Browser login is not configured (NEXT_ROLE_UI_PASSWORD)")
     client = request.client.host if request.client else "unknown"
     throttle = _throttle(request)
-    throttle.check(client)
+    throttle.attempt(client)
     ttl = timedelta(hours=settings.session_ttl_hours)
     try:
         new = service.login(
@@ -63,7 +63,6 @@ def login(
             datetime.now(UTC),
         )
     except service.InvalidCredentialsError:
-        throttle.failed(client)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid password") from None
     throttle.succeeded(client)
     response.set_cookie(
@@ -83,7 +82,7 @@ def login(
     )
 
 
-@router.get("/session")
+@router.get("/session", responses={401: {}})
 def current_session(
     request: Request,
     x_api_key: str | None = Header(default=None),
@@ -93,8 +92,11 @@ def current_session(
     """Whether the caller is authenticated, and the CSRF token for a browser session."""
     if settings.auth_disabled:
         return SessionOut(authenticated=True, method="disabled")
-    if valid_api_key(x_api_key, settings):
-        return SessionOut(authenticated=True, method="api_key")
+    if x_api_key is not None:
+        # Same rule as require_auth: a wrong key never falls back to the cookie.
+        if valid_api_key(x_api_key, settings):
+            return SessionOut(authenticated=True, method="api_key")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Missing or invalid API key")
     operator = current_operator_session(request, session)
     if operator is None:
         return SessionOut(authenticated=False)

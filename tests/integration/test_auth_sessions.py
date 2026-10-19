@@ -99,6 +99,15 @@ def test_session_endpoint_returns_csrf_after_reload(browser: TestClient) -> None
     assert body["expires_at"]
 
 
+def test_session_endpoint_rejects_a_wrong_api_key_even_with_a_cookie(browser: TestClient) -> None:
+    _login(browser)
+    response = browser.get("/api/v1/auth/session", headers={"X-API-Key": "wrong"})
+    assert response.status_code == 401
+    assert browser.get("/api/v1/reviews", headers={"X-API-Key": "wrong"}).status_code == 401
+    body = browser.get("/api/v1/auth/session", headers={"X-API-Key": API_KEY}).json()
+    assert body["method"] == "api_key"
+
+
 def test_logout_requires_csrf_and_revokes(browser: TestClient, session: Session) -> None:
     csrf = _login(browser)
     token = browser.cookies["next_role_session"]

@@ -37,7 +37,9 @@ class DispatchPolicy:
 
     def backoff(self, attempts: int, rng: random.Random) -> timedelta:
         """Exponential backoff with jitter: 50-100% of base * 2^(attempts-1), capped."""
-        delay: timedelta = min(self.max_delay, self.base_delay * 2 ** (attempts - 1))
+        # Cap the exponent: base * 2**n overflows timedelta long before attempts runs out.
+        exponent = min(max(attempts - 1, 0), 30)
+        delay: timedelta = min(self.max_delay, self.base_delay * 2**exponent)
         return delay * (0.5 + rng.random() / 2)
 
 

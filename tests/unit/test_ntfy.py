@@ -134,6 +134,6 @@ def test_ntfy_topic_is_restricted() -> None:
 def test_backoff_grows_with_jitter_and_cap() -> None:
     policy = DispatchPolicy(base_delay=timedelta(seconds=30), max_delay=timedelta(minutes=10))
     rng = random.Random(1)  # noqa: S311
-    for attempts, full in [(1, 30), (2, 60), (3, 120), (6, 600), (20, 600)]:
+    for attempts, full in [(1, 30), (2, 60), (3, 120), (6, 600), (20, 600), (100, 600)]:
         delay = policy.backoff(attempts, rng).total_seconds()
         assert full / 2 <= delay <= full
