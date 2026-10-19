@@ -23,6 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from next_role.db import Base, IdMixin, TimestampMixin
+from next_role.jobs.models import JobOpportunity
 from next_role.matching.models import SuitabilityAssessment
 from next_role.review.workflow import ReviewEventType, ReviewStatus
 
@@ -60,6 +61,7 @@ class OpportunityReview(IdMixin, TimestampMixin, Base):
     version: Mapped[int] = mapped_column(Integer)
 
     latest_assessment: Mapped[SuitabilityAssessment] = relationship()
+    opportunity: Mapped[JobOpportunity] = relationship()
 
 
 class ReviewEvent(IdMixin, Base):

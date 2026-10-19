@@ -1,3 +1,11 @@
+# Build the web workspace. Node is only needed here, not in the runtime image.
+FROM node:22-alpine AS frontend
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
+
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -19,6 +27,8 @@ COPY src ./src
 COPY migrations ./migrations
 COPY alembic.ini ./
 RUN uv sync --frozen --no-dev
+COPY --from=frontend /frontend/dist ./static
+ENV NEXT_ROLE_STATIC_DIR=/app/static
 
 RUN useradd --system --uid 10001 app
 USER app

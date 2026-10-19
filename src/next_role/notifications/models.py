@@ -26,6 +26,8 @@ class OutboxStatus(StrEnum):
     PENDING = "pending"
     SENT = "sent"
     FAILED = "failed"
+    # Expired, or no longer relevant (e.g. the review left "postponed") before delivery.
+    CANCELLED = "cancelled"
 
 
 def _enum(enum_cls: type[StrEnum], name: str) -> Enum:

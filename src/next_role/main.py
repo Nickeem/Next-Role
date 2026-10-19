@@ -4,17 +4,34 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, sessionmaker
 
-from next_role.api.deps import require_api_key
-from next_role.api.routes import assessments, candidates, health, jobs
+from next_role.api.deps import require_auth
+from next_role.api.routes import (
+    assessments,
+    auth,
+    candidates,
+    health,
+    jobs,
+    notifications,
+    reviews,
+)
+from next_role.api.spa import mount_spa
+from next_role.auth.service import LoginThrottle
 from next_role.config import Settings, get_settings
 from next_role.db import get_engine, get_sessionmaker
-from next_role.errors import ConflictError, DomainError, InvalidInputError, NotFoundError
+from next_role.errors import (
+    ConflictError,
+    DomainError,
+    InvalidInputError,
+    NotFoundError,
+    RateLimitedError,
+)
 from next_role.integrations.llm.factory import build_llm_provider
 from next_role.jobs.llm_extraction import LLMRequirementExtractor
 from next_role.jobs.service import RequirementExtractor, rule_based_extractor
@@ -26,6 +43,7 @@ _STATUS_BY_ERROR: dict[type[DomainError], int] = {
     NotFoundError: status.HTTP_404_NOT_FOUND,
     ConflictError: status.HTTP_409_CONFLICT,
     InvalidInputError: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    RateLimitedError: status.HTTP_429_TOO_MANY_REQUESTS,
 }
 
 
@@ -49,14 +67,15 @@ def create_app(
     app = FastAPI(
         title="Next-Role",
         version="0.1.0",
-        description="Candidate knowledge base, manual job ingestion, and evidence-backed "
-        "suitability assessments (Phase 1).",
+        description="Candidate knowledge base, manual job ingestion, evidence-backed "
+        "suitability assessments, and candidate review decisions.",
     )
     app.state.settings = settings
     app.state.session_factory = session_factory or get_sessionmaker(
         get_engine(settings.database_url)
     )
     app.state.requirement_extractor = _build_extractor(settings)
+    app.state.login_throttle = LoginThrottle()
 
     @app.middleware("http")
     async def request_context(
@@ -70,6 +89,9 @@ def create_app(
         finally:
             request_id_var.reset(token)
         response.headers["X-Request-ID"] = request_id
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        # Leaving the app (e.g. opening a job's source link) must not leak review URLs.
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
         logger.info(
             "request completed",
             extra={
@@ -111,8 +133,14 @@ def create_app(
         )
 
     app.include_router(health.router)
-    protected = [Depends(require_api_key)]
+    app.include_router(auth.router, prefix="/api/v1")
+    protected = [Depends(require_auth)]
     app.include_router(candidates.router, prefix="/api/v1", dependencies=protected)
     app.include_router(jobs.router, prefix="/api/v1", dependencies=protected)
     app.include_router(assessments.router, prefix="/api/v1", dependencies=protected)
+    app.include_router(reviews.router, prefix="/api/v1", dependencies=protected)
+    app.include_router(notifications.router, prefix="/api/v1", dependencies=protected)
+    if settings.static_dir:
+        # Registered last: the catch-all must not shadow API, health, or docs routes.
+        mount_spa(app, Path(settings.static_dir))
     return app

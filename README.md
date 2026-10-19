@@ -27,8 +27,17 @@ explicit human approval (see [AGENTS.md](AGENTS.md) and [docs/roadmap.md](docs/r
 - **Persistence.** Assessments are stored as immutable, idempotent snapshots and can be
   retrieved later.
 
-Out of scope for Phase 1: automated job discovery, notifications, document generation,
-applications, and a frontend.
+## Phase 2: review and approval
+
+- **Review workflow.** Each assessed job gets a review: shortlist, postpone to a date,
+  reject, or approve for drafting, with confirmation for approve and reject, a reason when you
+  go against the assessment, and an append-only history. Approval only records your intent;
+  nothing is generated or sent.
+- **Notifications.** A worker publishes privacy-preserving alerts (a role is ready, a postponed
+  role is due) to your own ntfy server, with retries and visible failures.
+- **Web workspace.** Responsive, keyboard-accessible, password-protected.
+
+Out of scope so far: automated job discovery, document generation, and applications.
 
 ## Prerequisites
 
@@ -41,12 +50,19 @@ applications, and a frontend.
 cp .env.example .env
 # Edit .env: set POSTGRES_PASSWORD, NEXT_ROLE_API_KEY, and the matching password in
 # NEXT_ROLE_DATABASE_URL (only used when running outside Docker).
-docker compose up -d --build --wait     # starts db, runs migrations, starts the API
+docker compose up -d --build --wait     # starts db, runs migrations, starts the API and worker
 curl http://localhost:8000/health/ready
 ```
 
-The API listens on `http://localhost:8000`, with interactive OpenAPI docs at `/docs`. Every
-`/api/v1` route requires an `X-API-Key` header matching `NEXT_ROLE_API_KEY`.
+The app listens on `http://localhost:8000`:
+
+- **Web workspace** at `/`: review queue, assessment details, decisions, activity, and
+  notification settings. Set `NEXT_ROLE_UI_PASSWORD` (at least 12 characters) in `.env` to
+  sign in.
+- **API** under `/api/v1`, with interactive OpenAPI docs at `/docs`. Scripts authenticate with
+  an `X-API-Key` header matching `NEXT_ROLE_API_KEY`.
+- **Worker** (separate container) publishes ntfy notifications when configured; see
+  [docs/operations/ntfy.md](docs/operations/ntfy.md).
 
 Run the end-to-end demo against the stack, using synthetic data:
 
@@ -76,6 +92,9 @@ All settings are environment variables prefixed with `NEXT_ROLE_`. They are docu
 | [docs/roadmap.md](docs/roadmap.md) | Phases and current progress |
 | [docs/decisions/](docs/decisions/) | Architecture decision records |
 | [docs/implementation/phase-1-progress.md](docs/implementation/phase-1-progress.md) | Phase 1 working log |
+| [docs/operations/runbook.md](docs/operations/runbook.md) | Deployment, reverse proxy, upgrades, backup/restore, secret rotation, troubleshooting |
+| [docs/operations/phase-2-release-checklist.md](docs/operations/phase-2-release-checklist.md) | Phase 2 sign-off checklist |
+| [docs/operations/ntfy.md](docs/operations/ntfy.md) | ntfy notifications: setup, delivery, troubleshooting |
 | [docs/features/review-workflow.md](docs/features/review-workflow.md) | Phase 2 specification: review workflow, notifications, workspace |
 | [docs/implementation/phase-2-progress.md](docs/implementation/phase-2-progress.md) | Phase 2 working log |
 
