@@ -7,12 +7,14 @@ or job details; the click path leads to a page that requires login.
 
 import logging
 import uuid
+from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from next_role.errors import RateLimitedError
 from next_role.notifications.models import (
     NotificationEventType,
     NotificationOutbox,
@@ -20,6 +22,7 @@ from next_role.notifications.models import (
     OutboxStatus,
 )
 from next_role.notifications.schemas import (
+    DeliveryStatusOut,
     NotificationPreferencesOut,
     NotificationPreferencesUpdate,
 )
@@ -27,6 +30,7 @@ from next_role.notifications.schemas import (
 logger = logging.getLogger(__name__)
 
 OPERATOR_ID = "operator"
+TEST_INTERVAL = timedelta(seconds=60)
 
 _MESSAGES: dict[NotificationEventType, dict[str, Any]] = {
     NotificationEventType.REVIEW_READY: {
@@ -125,3 +129,47 @@ def enqueue(
         "notification queued", extra={"outbox_id": str(row_id), "event_type": event_type.value}
     )
     return session.scalar(select(NotificationOutbox).where(NotificationOutbox.id == row_id))
+
+
+def queue_test(session: Session, now: datetime) -> NotificationOutbox:
+    """Queue a test notification, at most one per TEST_INTERVAL."""
+    last = session.scalar(
+        select(func.max(NotificationOutbox.created_at)).where(
+            NotificationOutbox.event_type == NotificationEventType.INTEGRATION_TEST
+        )
+    )
+    if last is not None and now - last < TEST_INTERVAL:
+        raise RateLimitedError("A test notification was sent recently; try again in a minute")
+    row = enqueue(
+        session,
+        NotificationEventType.INTEGRATION_TEST,
+        event_key=f"integration.test:{uuid.uuid4()}",
+        click_path="/settings",
+    )
+    if row is None:  # pragma: no cover - tests cannot be disabled and keys are unique
+        raise RuntimeError("test notification was not queued")
+    return row
+
+
+def delivery_status(session: Session) -> DeliveryStatusOut:
+    counts = dict(
+        session.execute(
+            select(NotificationOutbox.status, func.count()).group_by(NotificationOutbox.status)
+        ).all()
+    )
+    last_sent_at = session.scalar(select(func.max(NotificationOutbox.sent_at)))
+    last_error = session.execute(
+        select(NotificationOutbox.last_error, NotificationOutbox.updated_at)
+        .where(
+            NotificationOutbox.last_error.is_not(None),
+            NotificationOutbox.status != OutboxStatus.CANCELLED,
+        )
+        .order_by(NotificationOutbox.updated_at.desc())
+        .limit(1)
+    ).first()
+    return DeliveryStatusOut(
+        counts={status: counts.get(status, 0) for status in OutboxStatus},
+        last_accepted_at=last_sent_at,
+        last_error=last_error[0] if last_error else None,
+        last_error_at=last_error[1] if last_error else None,
+    )

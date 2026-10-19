@@ -14,7 +14,13 @@ from next_role.api.deps import require_api_key
 from next_role.api.routes import assessments, candidates, health, jobs, notifications, reviews
 from next_role.config import Settings, get_settings
 from next_role.db import get_engine, get_sessionmaker
-from next_role.errors import ConflictError, DomainError, InvalidInputError, NotFoundError
+from next_role.errors import (
+    ConflictError,
+    DomainError,
+    InvalidInputError,
+    NotFoundError,
+    RateLimitedError,
+)
 from next_role.integrations.llm.factory import build_llm_provider
 from next_role.jobs.llm_extraction import LLMRequirementExtractor
 from next_role.jobs.service import RequirementExtractor, rule_based_extractor
@@ -26,6 +32,7 @@ _STATUS_BY_ERROR: dict[type[DomainError], int] = {
     NotFoundError: status.HTTP_404_NOT_FOUND,
     ConflictError: status.HTTP_409_CONFLICT,
     InvalidInputError: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    RateLimitedError: status.HTTP_429_TOO_MANY_REQUESTS,
 }
 
 

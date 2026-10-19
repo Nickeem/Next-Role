@@ -40,7 +40,7 @@ Pull requests, in order:
       backfill of existing assessments.
 - [x] Review API: queue summary and list, details, decisions, activity, notification
       preferences.
-- [ ] ntfy worker: publisher adapter, outbox dispatcher with retries, postponed-review
+- [x] ntfy worker: publisher adapter, outbox dispatcher with retries, postponed-review
       reminders, test notification, Compose `worker` service.
 - [ ] Session authentication for the browser (password login, cookie session, CSRF).
 - [ ] Web workspace: review queue, assessment detail, decisions, activity, settings.

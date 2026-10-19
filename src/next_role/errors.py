@@ -21,3 +21,7 @@ class ConflictError(DomainError):
 
 class InvalidInputError(DomainError):
     code = "invalid_input"
+
+
+class RateLimitedError(DomainError):
+    code = "rate_limited"

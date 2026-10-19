@@ -41,7 +41,7 @@ applications, and a frontend.
 cp .env.example .env
 # Edit .env: set POSTGRES_PASSWORD, NEXT_ROLE_API_KEY, and the matching password in
 # NEXT_ROLE_DATABASE_URL (only used when running outside Docker).
-docker compose up -d --build --wait     # starts db, runs migrations, starts the API
+docker compose up -d --build --wait     # starts db, runs migrations, starts the API and worker
 curl http://localhost:8000/health/ready
 ```
 
@@ -76,6 +76,7 @@ All settings are environment variables prefixed with `NEXT_ROLE_`. They are docu
 | [docs/roadmap.md](docs/roadmap.md) | Phases and current progress |
 | [docs/decisions/](docs/decisions/) | Architecture decision records |
 | [docs/implementation/phase-1-progress.md](docs/implementation/phase-1-progress.md) | Phase 1 working log |
+| [docs/operations/ntfy.md](docs/operations/ntfy.md) | ntfy notifications: setup, delivery, troubleshooting |
 | [docs/features/review-workflow.md](docs/features/review-workflow.md) | Phase 2 specification: review workflow, notifications, workspace |
 | [docs/implementation/phase-2-progress.md](docs/implementation/phase-2-progress.md) | Phase 2 working log |
 

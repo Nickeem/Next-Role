@@ -11,7 +11,7 @@ can resume the work without repeating it. The specification is
 | 1 | `docs/phase-2-alignment` | Roadmap, ADR 0004, ADR 0005, specification, this log | PR open |
 | 2 | `feat/review-workflow-core` | Review states, decision events, outbox, backfill | PR open |
 | 3 | `feat/review-api` | Queue, details, decisions, activity, preferences routes | PR open |
-| 4 | `feat/ntfy-worker` | Publisher, dispatcher, reminders, test notification, Compose worker | not started |
+| 4 | `feat/ntfy-worker` | Publisher, dispatcher, reminders, test notification, Compose worker | PR open |
 | 5 | `feat/auth-sessions` | Password login, cookie sessions, CSRF | not started |
 | 6 | `feat/review-workspace` | React SPA | not started |
 | 7 | `chore/phase-2-hardening` | Security, accessibility, runbook, release checklist | not started |
@@ -41,6 +41,16 @@ Each PR is based on the previous one until it merges.
   rather than duplicated as `/opportunities` routes. The queue returns `{items, total, limit,
   offset}`; search escapes `%` and `_`. ntfy status and test routes move to PR 4 with the
   adapter.
+- PR 4: the worker claims one outbox row per transaction and holds the row lock during the
+  bounded HTTP call (`NEXT_ROLE_NTFY_TIMEOUT_SECONDS`), instead of a lease column. A crash
+  releases the lock and leaves the row pending.
+- Outbox rows older than `NEXT_ROLE_NOTIFICATION_MAX_AGE_HOURS` are cancelled instead of sent
+  late. Postponed reminders are re-checked at send time and cancelled if the review is no
+  longer postponed to the same date. Migration `0006_outbox_cancelled` adds the status.
+- 401/403 and other 4xx fail immediately; timeouts, connection errors, 429, and 5xx retry.
+  Stored errors are an HTTP status or exception class only.
+- The test notification is limited to one per minute (429) and needs ntfy enabled (409).
+- The worker lowers the `httpx` logger to WARNING, because request logs include the topic URL.
 
 ## Testing log
 
@@ -56,3 +66,14 @@ Each PR is based on the previous one until it merges.
   pagination, rejected hidden by default, detail, decision flow and history, 409/422/404
   errors, weak-tier override, summary and due follow-ups, activity filters, preferences,
   auth).
+- PR 4: 190 tests pass (17 unit tests for the ntfy adapter, configuration, and backoff; 13
+  integration tests for dispatch, retries, attempt budget, permanent failure, expiry,
+  `SKIP LOCKED`, reminders once per date, rescheduling, leaving postponed, disabled
+  reminders, status and test routes, rate limit).
+- PR 4 manual check against a real ntfy v2.11.0 container with `deny-all` access, a
+  write-only publisher token, and a read-only subscriber: `python -m next_role.worker --once`
+  published `review.ready`; the subscriber received it with the click link and no personal
+  data; anonymous and publisher-token reads returned 403. A wrong token produced `failed`
+  ("HTTP 401", one attempt); with ntfy stopped, the row stayed `pending` with a backoff
+  ("ConnectError"). `docker compose up --build --wait` started db, migrate, api, and worker;
+  readiness reported `0006_outbox_cancelled`.

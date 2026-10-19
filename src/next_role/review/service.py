@@ -6,7 +6,7 @@ the caller's transaction.
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 from next_role.errors import ConflictError, NotFoundError
 from next_role.matching.models import SuitabilityAssessment
 from next_role.notifications import service as notifications
-from next_role.notifications.models import NotificationEventType
+from next_role.notifications.models import NotificationEventType, NotificationOutbox
 from next_role.review import workflow
 from next_role.review.models import OpportunityReview, ReviewEvent
 from next_role.review.schemas import DecisionIn, ReviewEventOut, ReviewOut
@@ -73,6 +73,54 @@ def record_assessment(session: Session, assessment: SuitabilityAssessment) -> Op
     review.version += 1
     _append(session, review, ReviewEventType.ASSESSMENT_UPDATED, review.status, actor=SYSTEM)
     return review
+
+
+def reminder_key(review: OpportunityReview) -> str:
+    """One reminder per scheduled date: rescheduling produces a new key."""
+    if review.postpone_until is None:
+        raise ValueError("review is not postponed")
+    until = review.postpone_until.astimezone(UTC).isoformat()
+    return f"review.postponed_due:{review.id}:{until}"
+
+
+def queue_due_reminders(session: Session, now: datetime, max_age: timedelta) -> int:
+    """Queue a reminder for each postponed review whose date has passed (within max_age).
+
+    Safe to call repeatedly: a reminder already queued for the same date is not queued again.
+    Returns the number queued.
+    """
+    due = session.scalars(
+        select(OpportunityReview).where(
+            OpportunityReview.status == ReviewStatus.POSTPONED,
+            OpportunityReview.postpone_until <= now,
+            OpportunityReview.postpone_until > now - max_age,
+        )
+    ).all()
+    queued = 0
+    for review in due:
+        row = notifications.enqueue(
+            session,
+            NotificationEventType.REVIEW_POSTPONED_DUE,
+            event_key=reminder_key(review),
+            click_path=review_path(review.id),
+            review_id=review.id,
+        )
+        queued += row is not None
+    return queued
+
+
+def notification_still_relevant(session: Session, row: NotificationOutbox) -> bool:
+    """A postponed-review reminder applies only while the review is still postponed to the
+    same date. Other notifications always apply."""
+    if row.event_type is not NotificationEventType.REVIEW_POSTPONED_DUE:
+        return True
+    review = session.get(OpportunityReview, row.review_id) if row.review_id else None
+    return (
+        review is not None
+        and review.status is ReviewStatus.POSTPONED
+        and review.postpone_until is not None
+        and reminder_key(review) == row.event_key
+    )
 
 
 def apply_decision(

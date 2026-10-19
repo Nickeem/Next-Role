@@ -7,8 +7,8 @@ design are in [decisions/](decisions/).
 ## Overview
 
 Next-Role is a **modular monolith**: one Python package (`next_role`) served by FastAPI and
-backed by PostgreSQL, deployed with Docker Compose (ADR 0001). There are no background
-workers yet. Every Phase 1 operation is synchronous and fast: rule-based extraction and
+backed by PostgreSQL, deployed with Docker Compose (ADR 0001). A separate `worker` process from the same image
+publishes notifications (ADR 0004). Every request-path operation is synchronous and fast: rule-based extraction and
 matching take milliseconds. The only potentially slow call is optional LLM extraction, which
 is bounded by a timeout and one retry.
 
@@ -33,7 +33,9 @@ HTTP client ──► FastAPI routes (api/) ──► domain services ──► 
 | `jobs/` | Manual ingestion, normalization, deduplication, requirement extraction | db, skills, integrations (via protocol) |
 | `matching/` | Pure matching engine, assessment persistence, and retrieval | candidates, jobs, review |
 | `review/` | Candidate decisions: pure state machine (`workflow.py`), reviews, append-only events | matching, notifications |
-| `notifications/` | Transactional outbox and notification preferences | db |
+| `notifications/` | Transactional outbox, preferences, `NotificationPublisher` protocol, dispatcher with retries | db |
+| `integrations/ntfy.py` | ntfy HTTP publisher (httpx) | config, notifications |
+| `worker.py` | `python -m next_role.worker`: postponed-review reminders and outbox dispatch | review, notifications, integrations |
 | `integrations/llm/` | `LLMProvider` protocol, Ollama and OpenAI-compatible HTTP adapters | config, httpx |
 | `api/` | FastAPI routes, dependencies (session, API-key auth) | services |
 | `main.py` | App factory: wiring, middleware, error handlers | everything |
@@ -119,6 +121,20 @@ state, and appends a `review_events` row, all in one transaction. Invalid transi
 `ConflictError` (409); missing confirmation, reason, or postpone date raise
 `InvalidInputError` (422). Decisions never queue notifications.
 
+## Worker
+
+`python -m next_role.worker` runs one loop, every `NEXT_ROLE_WORKER_POLL_SECONDS`:
+
+1. `review.service.queue_due_reminders` queues a `review.postponed_due` notification for each
+   postponed review whose date has passed. Its `event_key` includes the date, so it is queued
+   once per date.
+2. `notifications.dispatcher.dispatch_pending` claims due outbox rows one at a time
+   (`FOR UPDATE SKIP LOCKED`, one transaction each), cancels expired or no-longer-relevant
+   ones, and publishes the rest through the `NotificationPublisher` (ntfy). Retryable failures
+   are rescheduled with exponential backoff; the rest are marked `failed`.
+
+With ntfy disabled the worker idles. Operations: [operations/ntfy.md](operations/ntfy.md).
+
 The review routes (`api/routes/reviews.py`) are thin. Read models for the queue, summary,
 details, and activity live in `review/queries.py`, and join reviews to their job and latest
 assessment in SQL so the queue can filter and sort server-side.
@@ -143,7 +159,6 @@ assessment in SQL so the queue can filter and sort server-side.
 
 ## Not yet implemented
 
-There are no background workers yet: queued notifications are not published until the
-worker lands. There is no frontend yet, no job discovery, documents, or
+There is no frontend yet, no job discovery, documents, or
 applications, and no multi-user accounts. The data model is designed so that each can be added as new tables that reference
 opportunities, candidates, and assessments, without restructuring existing ones.
