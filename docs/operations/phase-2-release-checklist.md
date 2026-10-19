@@ -22,6 +22,9 @@ Sign off each item before calling Phase 2 complete. The acceptance criteria are 
       confirmation), and reopen (with a reason) all work; history shows each one
 - [ ] Approving a weak match asks for a reason
 - [ ] Deciding in two tabs: the second gets the "changed" message and reloads
+- [ ] With two candidate profiles, the header "Candidate" selector scopes the queue, counts,
+      decisions, and activity, and the detail page names the candidate
+- [ ] Sign-out with the API stopped shows an error and stays signed in
 - [ ] No document is generated and nothing is sent anywhere by approval
 - [ ] Restarting `docker compose restart api worker db` keeps every review and decision
 

@@ -10,7 +10,7 @@ For a single-operator, self-hosted deployment with Docker Compose. ntfy specific
 | `db` | PostgreSQL 16, the only durable store (`pgdata` volume) | `pg_isready` |
 | `migrate` | Runs `alembic upgrade head`, then exits | must exit 0 before `api`/`worker` start |
 | `api` | FastAPI: web workspace at `/`, API at `/api/v1` | `GET /health/ready` (database reachable, schema revision) |
-| `worker` | Postponed-review reminders and ntfy publishing | `python -m next_role.worker --check` (loop ran within max(60 s, 3 × poll)) |
+| `worker` | Postponed-review reminders and ntfy publishing | `python -m next_role.worker --check` (heartbeat, touched after each loop and each dispatched notification, is newer than max(60 s, 3 × poll, 2 × (poll + ntfy timeout))) |
 
 `docker compose ps` shows all of them; `docker compose logs -f api worker` shows JSON logs
 with identifiers and counts only (no candidate facts, job text, or tokens).
@@ -99,9 +99,22 @@ docker compose exec db psql -U next_role -d next_role -c "DELETE FROM operator_s
 
 ## Data handling
 
-- Decision history (`review_events`) cannot be updated, by design (a database trigger). Rows
-  are only removed if the candidate or job they belong to is deleted (cascade); there is no
-  API for that.
+- Decision history (`review_events`) cannot be updated or deleted, by design (a database
+  trigger), and its foreign key is `ON DELETE RESTRICT`: deleting a review, job, or candidate
+  that has history fails instead of cascading. There is no API to delete candidates or jobs.
+- To erase a candidate's personal data (for example on request), take a backup, then in one
+  transaction disable the trigger, delete, and re-enable it. Record why outside the
+  database:
+
+  ```sql
+  BEGIN;
+  ALTER TABLE review_events DISABLE TRIGGER review_events_append_only;
+  DELETE FROM review_events WHERE review_id IN
+    (SELECT id FROM opportunity_reviews WHERE candidate_id = '<candidate id>');
+  DELETE FROM candidates WHERE id = '<candidate id>';
+  ALTER TABLE review_events ENABLE TRIGGER review_events_append_only;
+  COMMIT;
+  ```
 - Rejected reviews are kept, and hidden from the queue by default.
 - Outbox rows are kept for diagnostics. To prune old delivered ones:
   `DELETE FROM notification_outbox WHERE status IN ('sent', 'cancelled') AND created_at < now() - interval '90 days';`

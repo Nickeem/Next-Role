@@ -136,9 +136,11 @@ state, and appends a `review_events` row, all in one transaction. Invalid transi
    ones, and publishes the rest through the `NotificationPublisher` (ntfy). Retryable failures
    are rescheduled with exponential backoff; the rest are marked `failed`.
 
-With ntfy disabled the worker idles. Each loop iteration touches a heartbeat file; the
-Compose healthcheck (`python -m next_role.worker --check`) fails if it is older than
-max(60 s, 3 × poll). Operations: [operations/ntfy.md](operations/ntfy.md).
+With ntfy disabled the worker idles. Each loop iteration, and each notification dispatched
+within a batch, touches a heartbeat file; the Compose healthcheck
+(`python -m next_role.worker --check`) fails if it is older than
+max(60 s, 3 × poll, 2 × (poll + ntfy timeout)). Operations:
+[operations/ntfy.md](operations/ntfy.md).
 
 The review routes (`api/routes/reviews.py`) are thin. Read models for the queue, summary,
 details, and activity live in `review/queries.py`, and join reviews to their job and latest

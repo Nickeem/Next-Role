@@ -68,6 +68,29 @@ Each PR is based on the previous one until it merges.
   healthcheck. `scripts/demo.sh` now shows the review step. Added the operations runbook and
   the release checklist.
 
+## Review follow-up
+
+Automated review comments on the PRs were addressed in follow-up commits on each branch,
+merged up the stack:
+
+- PR 1 (#2, docs): history also rejects deletes and cascades; TLS and the private-network cookie
+  option are specified; login and session probe are documented as unauthenticated; only the
+  first assessment queues `review.ready`.
+- PR 2 (#3): `review_events` trigger covers `DELETE`; its foreign key is `ON DELETE RESTRICT`.
+  The runbook describes the deliberate erasure procedure.
+- PR 4 (#5): the test-notification interval is enforced under a transaction-scoped advisory lock;
+  the backoff exponent is capped so a large attempt budget cannot overflow.
+- PR 5 (#6): the login throttle reserves an attempt atomically before the password check and
+  bounds how many client addresses it tracks; `GET /auth/session` returns 401 for a wrong
+  `X-API-Key` instead of falling back to the cookie.
+- PR 6 (#7): the workspace is scoped to one candidate (header selector when there are several,
+  candidate named on the detail page); sign-out only leaves the workspace after the server
+  confirms it; Decisions is paginated; a failed history load shows an error with retry.
+- PR 7 (#8): the worker heartbeat is touched after each dispatched row, and the health threshold
+  allows a publish that runs to its timeout.
+- A `frontend/node_modules` tree was accidentally committed in the PR 2 (#3) follow-up and removed
+  in the next commit (no force-push). Squash-merging #3 keeps it out of `main`'s history.
+
 ## Testing log
 
 - PR 2: 149 tests pass (54 workflow unit tests over the full transition matrix,

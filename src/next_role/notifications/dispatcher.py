@@ -124,12 +124,18 @@ def dispatch_pending(
     *,
     is_relevant: RelevanceCheck | None = None,
     limit: int = 50,
+    on_progress: Callable[[], None] | None = None,
 ) -> int:
-    """Process up to ``limit`` due rows, one transaction each. Returns how many were handled."""
+    """Process up to ``limit`` due rows, one transaction each. Returns how many were handled.
+
+    ``on_progress`` is called after each row, so a long batch still shows signs of life.
+    """
     handled = 0
     while handled < limit:
         with factory.begin() as session:
             if dispatch_one(session, publisher, policy, now(), is_relevant=is_relevant) is None:
                 break
         handled += 1
+        if on_progress is not None:
+            on_progress()
     return handled

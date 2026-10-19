@@ -80,7 +80,10 @@ def test_sends_queued_notification_once(
     session_factory: sessionmaker[Session], session: Session, review_id: uuid.UUID
 ) -> None:
     publisher = FakePublisher()
-    assert dispatch_pending(session_factory, publisher, POLICY, _now) == 1
+    beats: list[None] = []
+    progress = lambda: beats.append(None)  # noqa: E731
+    assert dispatch_pending(session_factory, publisher, POLICY, _now, on_progress=progress) == 1
+    assert beats == [None]  # the worker's heartbeat is touched after each row
     assert dispatch_pending(session_factory, publisher, POLICY, _now) == 0
 
     [note] = publisher.sent

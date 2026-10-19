@@ -27,8 +27,23 @@ from next_role.review import service as review_service
 
 logger = logging.getLogger(__name__)
 
-# Touched after every loop iteration; the Compose healthcheck checks its age.
+# Touched after every loop iteration and every dispatched row; the Compose healthcheck
+# checks its age.
 HEARTBEAT = Path(tempfile.gettempdir()) / "next-role-worker.heartbeat"
+
+
+def touch_heartbeat() -> None:
+    HEARTBEAT.touch()
+
+
+def health_threshold(settings: Settings) -> float:
+    """Seconds without a heartbeat before the worker counts as stuck.
+
+    The longest normal gap is one poll plus one publish that runs to its timeout (the
+    heartbeat is touched between rows), so allow three polls or two such gaps, at least 60 s.
+    """
+    poll = settings.worker_poll_seconds
+    return max(60.0, 3 * poll, 2 * (poll + settings.ntfy_timeout_seconds))
 
 
 def _now() -> datetime:
@@ -48,12 +63,18 @@ def run_cycle(
     publisher: NotificationPublisher,
     policy: DispatchPolicy,
     now: Callable[[], datetime] = _now,
+    on_progress: Callable[[], None] | None = None,
 ) -> tuple[int, int]:
     """Queue due reminders, then publish due notifications. Returns (queued, processed)."""
     with factory.begin() as session:
         queued = review_service.queue_due_reminders(session, now(), policy.max_age)
     processed = dispatch_pending(
-        factory, publisher, policy, now, is_relevant=review_service.notification_still_relevant
+        factory,
+        publisher,
+        policy,
+        now,
+        is_relevant=review_service.notification_still_relevant,
+        on_progress=on_progress,
     )
     if queued or processed:
         logger.info("worker cycle", extra={"reminders_queued": queued, "processed": processed})
@@ -68,9 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     if args.check:
-        # Three missed polls (or 60 s, whichever is longer) means the loop is stuck.
-        poll = get_settings().worker_poll_seconds
-        return 0 if healthy(max(60.0, 3 * poll)) else 1
+        return 0 if healthy(health_threshold(get_settings())) else 1
 
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_json)
@@ -97,11 +116,11 @@ def main(argv: list[str] | None = None) -> int:
     while not stop.is_set():
         if publisher is not None:
             try:
-                run_cycle(factory, publisher, policy)
+                run_cycle(factory, publisher, policy, on_progress=touch_heartbeat)
             except Exception:
                 # A failed cycle (e.g. database restarting) is retried on the next poll.
                 logger.exception("worker cycle failed")
-        HEARTBEAT.touch()
+        touch_heartbeat()
         if args.once:
             break
         stop.wait(settings.worker_poll_seconds)
