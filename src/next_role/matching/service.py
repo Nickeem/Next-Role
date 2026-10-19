@@ -31,6 +31,7 @@ from next_role.matching.schemas import (
     PreferenceCheckOut,
     RequirementAssessmentOut,
 )
+from next_role.review import service as review_service
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,7 @@ def run_assessment(
     """Assess a candidate against a job. Returns (assessment, created).
 
     If an assessment with identical inputs exists, it is returned unchanged (created=False).
+    A new assessment opens or updates the candidate's review of the job.
     """
     as_of = as_of or datetime.now(UTC).date()
     job = get_job(session, job_id)
@@ -168,6 +170,8 @@ def run_assessment(
         if existing is None:
             raise
         return get_assessment(session, existing.id), False
+    # Same transaction: the review (and its notification) exists if and only if this does.
+    review_service.record_assessment(session, assessment)
     logger.info(
         "assessment completed",
         extra={

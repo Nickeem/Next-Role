@@ -36,7 +36,7 @@ Pull requests, in order:
 
 - [x] Docs alignment: this roadmap, ADR 0004 (review workflow and outbox), ADR 0005 (web
       workspace and session authentication).
-- [ ] Review workflow core: review state machine, decision events, notification outbox,
+- [x] Review workflow core: review state machine, decision events, notification outbox,
       backfill of existing assessments.
 - [ ] Review API: queue summary and list, details, decisions, activity, notification
       preferences.
