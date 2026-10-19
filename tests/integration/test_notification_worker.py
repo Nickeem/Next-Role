@@ -1,6 +1,7 @@
 """Outbox dispatch, postponed-review reminders, the worker cycle, and the ntfy routes."""
 
 import json
+import threading
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -10,10 +11,11 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from next_role.config import Settings
+from next_role.errors import RateLimitedError
 from next_role.main import create_app
 from next_role.notifications import service as notifications
 from next_role.notifications.dispatcher import DispatchPolicy, dispatch_one, dispatch_pending
@@ -313,3 +315,35 @@ def test_test_rate_limit_window(session: Session) -> None:
     with pytest.raises(Exception, match="recently"):
         notifications.queue_test(session, now + timedelta(seconds=30))
     session.rollback()
+
+
+def test_concurrent_test_requests_queue_one(session_factory: sessionmaker[Session]) -> None:
+    now = _now()
+    outcomes: list[str] = []
+
+    def second() -> None:
+        with session_factory() as other:
+            try:
+                notifications.queue_test(other, now)
+                other.commit()
+                outcomes.append("queued")
+            except RateLimitedError:
+                outcomes.append("limited")
+
+    with session_factory() as first:
+        notifications.queue_test(first, now)
+        # The second request starts while the first is uncommitted and must wait for it.
+        thread = threading.Thread(target=second)
+        thread.start()
+        thread.join(timeout=0.5)
+        assert thread.is_alive()
+        first.commit()
+    thread.join(timeout=5)
+    assert outcomes == ["limited"]
+    with session_factory() as check:
+        count = check.scalar(
+            select(func.count()).where(
+                NotificationOutbox.event_type == NotificationEventType.INTEGRATION_TEST
+            )
+        )
+    assert count == 1

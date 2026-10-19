@@ -3,6 +3,7 @@
 
 import type {
   ActivityItem,
+  CandidateSummary,
   DecisionInput,
   NotificationPreferences,
   NtfyStatus,
@@ -79,6 +80,7 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
 }
 
 export interface ReviewQuery {
+  candidate_id?: string;
   status?: string[];
   tier?: string[];
   q?: string;
@@ -103,7 +105,9 @@ export const api = {
     await request<void>("POST", "/auth/logout");
     csrfToken = null;
   },
-  summary: () => request<ReviewSummary>("GET", "/reviews/summary"),
+  candidates: () => request<CandidateSummary[]>("GET", "/candidates"),
+  summary: (candidateId?: string) =>
+    request<ReviewSummary>("GET", "/reviews/summary", undefined, { candidate_id: candidateId }),
   reviews: (query: ReviewQuery) =>
     request<Page<ReviewListItem>>("GET", "/reviews", undefined, { ...query }),
   review: (id: string) => request<ReviewDetail>("GET", `/reviews/${encodeURIComponent(id)}`),
@@ -111,7 +115,13 @@ export const api = {
     request<ReviewEvent[]>("GET", `/reviews/${encodeURIComponent(id)}/events`),
   decide: (id: string, decision: DecisionInput) =>
     request<Review>("POST", `/reviews/${encodeURIComponent(id)}/decisions`, decision),
-  activity: (query: { limit?: number; offset?: number; actor?: string; event_type?: string[] }) =>
+  activity: (query: {
+    candidate_id?: string;
+    limit?: number;
+    offset?: number;
+    actor?: string;
+    event_type?: string[];
+  }) =>
     request<Page<ActivityItem>>("GET", "/activity", undefined, { ...query }),
   preferences: () => request<NotificationPreferences>("GET", "/notification-preferences"),
   updatePreferences: (update: Partial<Omit<NotificationPreferences, "updated_at">>) =>

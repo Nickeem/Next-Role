@@ -287,11 +287,24 @@ def test_disabled_preference_queues_nothing(client: TestClient, session: Session
     assert _outbox(session) == []
 
 
-def test_review_events_are_append_only(session: Session, pair: tuple[str, str]) -> None:
-    with pytest.raises(DBAPIError, match="append-only"):
-        session.execute(text("UPDATE review_events SET reason = 'edited'"))
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "UPDATE review_events SET reason = 'edited'",
+        "DELETE FROM review_events",
+        # A cascade from the parent rows must not erase history either.
+        "DELETE FROM opportunity_reviews",
+        "DELETE FROM candidates",
+    ],
+)
+def test_review_events_are_append_only(
+    session: Session, pair: tuple[str, str], statement: str
+) -> None:
+    with pytest.raises(DBAPIError, match=r"append-only|foreign key"):
+        session.execute(text(statement))
         session.flush()
     session.rollback()
+    assert session.scalar(text("SELECT count(*) FROM review_events")) > 0
 
 
 def test_migration_backfills_existing_assessments_without_notifications(

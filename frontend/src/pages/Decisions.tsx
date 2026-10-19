@@ -1,17 +1,34 @@
 import { useState } from "react";
 
 import { api } from "../api";
+import { useCandidateId } from "../candidates";
+import { Pager } from "../components/Pager";
 import { ReviewTable } from "../components/ReviewTable";
 import { Empty, ErrorState, Loading } from "../components/States";
 import { STATUS_LABEL } from "../labels";
 import type { ReviewStatus } from "../types";
 import { useLoad } from "../useLoad";
 
+const PAGE_SIZE = 25;
 const TABS: ReviewStatus[] = ["approved_for_drafting", "shortlisted", "postponed", "rejected"];
 
 export function Decisions() {
   const [status, setStatus] = useState<ReviewStatus>("approved_for_drafting");
-  const list = useLoad(() => api.reviews({ status: [status], sort: "updated", limit: 100 }), status);
+  const [offset, setOffset] = useState(0);
+  const candidateId = useCandidateId();
+  const [scopedTo, setScopedTo] = useState(candidateId);
+  if (scopedTo !== candidateId) {
+    setScopedTo(candidateId);
+    setOffset(0);
+  }
+  const params = {
+    candidate_id: candidateId,
+    status: [status],
+    sort: "updated",
+    limit: PAGE_SIZE,
+    offset,
+  };
+  const list = useLoad(() => api.reviews(params), JSON.stringify(params));
 
   return (
     <>
@@ -26,7 +43,10 @@ export function Decisions() {
             role="tab"
             aria-selected={status === s}
             className={`segmented__item ${status === s ? "segmented__item--active" : ""}`}
-            onClick={() => setStatus(s)}
+            onClick={() => {
+              setOffset(0);
+              setStatus(s);
+            }}
           >
             {STATUS_LABEL[s]}
           </button>
@@ -45,7 +65,16 @@ export function Decisions() {
           <Empty title={`No ${STATUS_LABEL[status].toLowerCase()} roles`} />
         )}
         {list.data && list.data.items.length > 0 && (
-          <ReviewTable items={list.data.items} caption={`${STATUS_LABEL[status]} roles`} />
+          <>
+            <ReviewTable items={list.data.items} caption={`${STATUS_LABEL[status]} roles`} />
+            <Pager
+              offset={offset}
+              pageSize={PAGE_SIZE}
+              shown={list.data.items.length}
+              total={list.data.total}
+              onChange={setOffset}
+            />
+          </>
         )}
       </section>
     </>

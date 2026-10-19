@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
+import { useCandidate } from "../candidates";
 import { DecisionPanel } from "../components/DecisionPanel";
 import { Icon } from "../components/Icons";
 import { TierBadge } from "../components/Pills";
@@ -218,6 +219,7 @@ export function ReviewDetail() {
   const { id = "" } = useParams();
   const detail = useLoad(() => api.review(id), `detail:${id}`);
   const events = useLoad(() => api.events(id), `events:${id}:${detail.data?.review.version ?? 0}`);
+  const { candidates } = useCandidate();
 
   if (detail.loading && !detail.data) return <Loading label="Loading review" />;
   if (detail.error && !detail.data) {
@@ -232,6 +234,7 @@ export function ReviewDetail() {
   }
   if (!detail.data) return null;
   const { review, job, assessment, newer_assessment_available } = detail.data;
+  const candidate = candidates.find((c) => c.id === review.candidate_id);
 
   return (
     <>
@@ -242,6 +245,11 @@ export function ReviewDetail() {
         <div>
           <h1>{job.title ?? "Untitled role"}</h1>
           <p className="muted">{job.company ?? "Company not stated"}</p>
+          {candidates.length > 1 && (
+            <p className="candidate-label">
+              Candidate: <strong>{candidate?.full_name ?? "Unknown candidate"}</strong>
+            </p>
+          )}
         </div>
       </div>
       {newer_assessment_available && (
@@ -262,6 +270,14 @@ export function ReviewDetail() {
             onChanged={detail.reload}
           />
           {events.data && <History events={events.data} />}
+          {events.error && !events.data && (
+            <section className="card" aria-labelledby="history-title">
+              <h2 id="history-title" className="card__title">
+                History
+              </h2>
+              <ErrorState error={events.error} onRetry={events.reload} />
+            </section>
+          )}
         </div>
       </div>
       <a className="btn btn--primary decision-jump" href="#decision">

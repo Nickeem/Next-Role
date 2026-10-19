@@ -197,6 +197,14 @@ a {
   font-weight: 650;
 }
 
+.candidate-picker {
+  margin-left: auto;
+}
+
+.candidate-label {
+  margin-top: var(--space-1);
+}
+
 .tabs {
   display: flex;
   gap: var(--space-1);

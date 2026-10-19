@@ -2,6 +2,8 @@ import { useId, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api";
+import { useCandidateId } from "../candidates";
+import { Pager } from "../components/Pager";
 import { ReviewTable } from "../components/ReviewTable";
 import { Empty, ErrorState, Loading } from "../components/States";
 import { formatDateTime, jobLabel, STATUS_LABEL, TIER_LABEL } from "../labels";
@@ -12,7 +14,8 @@ const PAGE_SIZE = 20;
 const QUEUE_STATUSES: ReviewStatus[] = ["pending_review", "shortlisted", "postponed"];
 
 function SummaryCounts() {
-  const { data } = useLoad(() => api.summary(), "summary");
+  const candidateId = useCandidateId();
+  const { data } = useLoad(() => api.summary(candidateId), `summary:${candidateId}`);
   if (!data) return <div className="counts counts--placeholder" aria-hidden="true" />;
   const items: { label: string; value: number; tone: string }[] = [
     { label: "to review", value: data.counts.pending_review, tone: "pending_review" },
@@ -37,9 +40,17 @@ function SummaryCounts() {
 }
 
 function PriorityCard() {
+  const candidateId = useCandidateId();
   const { data } = useLoad(
-    () => api.reviews({ status: ["pending_review"], tier: ["strong"], sort: "score", limit: 3 }),
-    "priority",
+    () =>
+      api.reviews({
+        candidate_id: candidateId,
+        status: ["pending_review"],
+        tier: ["strong"],
+        sort: "score",
+        limit: 3,
+      }),
+    `priority:${candidateId}`,
   );
   return (
     <section className="card mini" aria-labelledby="priority-title">
@@ -61,7 +72,11 @@ function PriorityCard() {
 }
 
 function FollowUpsCard() {
-  const { data } = useLoad(() => api.reviews({ status: ["postponed"], sort: "updated", limit: 3 }), "postponed");
+  const candidateId = useCandidateId();
+  const { data } = useLoad(
+    () => api.reviews({ candidate_id: candidateId, status: ["postponed"], sort: "updated", limit: 3 }),
+    `postponed:${candidateId}`,
+  );
   return (
     <section className="card mini" aria-labelledby="followups-title">
       <h2 id="followups-title" className="card__title">
@@ -86,7 +101,11 @@ function FollowUpsCard() {
 }
 
 function RecentDecisionsCard() {
-  const { data } = useLoad(() => api.activity({ actor: "operator", limit: 3 }), "recent");
+  const candidateId = useCandidateId();
+  const { data } = useLoad(
+    () => api.activity({ candidate_id: candidateId, actor: "operator", limit: 3 }),
+    `recent:${candidateId}`,
+  );
   return (
     <section className="card mini" aria-labelledby="recent-title">
       <h2 id="recent-title" className="card__title">
@@ -117,8 +136,16 @@ export function ReviewQueue() {
   const [tier, setTier] = useState<Tier | "">("");
   const [sort, setSort] = useState<ReviewSort>("score");
   const [offset, setOffset] = useState(0);
+  const candidateId = useCandidateId();
+  const [scopedTo, setScopedTo] = useState(candidateId);
+  if (scopedTo !== candidateId) {
+    // A different candidate's queue starts from the first page.
+    setScopedTo(candidateId);
+    setOffset(0);
+  }
 
   const params = {
+    candidate_id: candidateId,
     status: status ? [status] : QUEUE_STATUSES,
     tier: tier ? [tier] : undefined,
     q: query || undefined,
@@ -218,27 +245,13 @@ export function ReviewQueue() {
         {list.data && list.data.items.length > 0 && (
           <>
             <ReviewTable items={list.data.items} caption="Roles awaiting a decision" />
-            <nav className="pager" aria-label="Pagination">
-              <button
-                type="button"
-                className="btn btn--secondary btn--small"
-                disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-              >
-                Previous
-              </button>
-              <span className="muted small">
-                {offset + 1}–{offset + list.data.items.length} of {list.data.total}
-              </span>
-              <button
-                type="button"
-                className="btn btn--secondary btn--small"
-                disabled={offset + PAGE_SIZE >= list.data.total}
-                onClick={() => setOffset(offset + PAGE_SIZE)}
-              >
-                Next
-              </button>
-            </nav>
+            <Pager
+              offset={offset}
+              pageSize={PAGE_SIZE}
+              shown={list.data.items.length}
+              total={list.data.total}
+              onChange={setOffset}
+            />
           </>
         )}
       </section>

@@ -145,15 +145,32 @@ function PreferencesCard() {
   );
 }
 
-export function Settings({ onLogout }: { onLogout: () => void }) {
+export function Settings({ onLogout }: { onLogout: () => Promise<void> }) {
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
+  const signOut = () => {
+    setSigningOut(true);
+    setSignOutError(null);
+    onLogout().catch((err: unknown) => {
+      setSigningOut(false);
+      setSignOutError(err instanceof Error ? err.message : String(err));
+    });
+  };
+
   return (
     <>
       <div className="page-head">
         <h1>Settings</h1>
-        <button type="button" className="btn btn--secondary" onClick={onLogout}>
-          Sign out
+        <button type="button" className="btn btn--secondary" onClick={signOut} disabled={signingOut}>
+          {signingOut ? "Signing out…" : "Sign out"}
         </button>
       </div>
+      {signOutError && (
+        <p className="notice notice--error" role="alert">
+          Sign-out failed, so you are still signed in: {signOutError}
+        </p>
+      )}
       <div className="settings-grid">
         <NtfyCard />
         <PreferencesCard />
