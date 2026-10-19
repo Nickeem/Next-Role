@@ -1,4 +1,4 @@
-# API examples: the Phase 1 workflow
+# API examples
 
 These requests run against a local stack (`docker compose up -d --build --wait`) using the
 synthetic files in `examples/`. `scripts/demo.sh` runs the same sequence. Responses below are
@@ -167,3 +167,92 @@ curl -sS "$API/api/v1/assessments?candidate_id=$CID" -H "X-API-Key: $KEY"       
 
 Verifying the Kubernetes fact and assessing again creates a **new** assessment (status
 `met`, higher score). The previous assessment is kept unchanged.
+
+## 5. Review and decide
+
+The first assessment of a job opens a review in `pending_review` (Phase 2). The queue shows
+the stored assessment; nothing is recomputed.
+
+```bash
+curl -sS $API/api/v1/reviews/summary -H "X-API-Key: $KEY"
+curl -sS "$API/api/v1/reviews?sort=score&tier=strong&tier=moderate" -H "X-API-Key: $KEY"
+```
+
+```jsonc
+// GET /reviews/summary
+{"counts": {"pending_review": 1, "shortlisted": 0, "postponed": 0, "rejected": 0,
+            "approved_for_drafting": 0},
+ "follow_ups_due": 0, "total": 1}
+
+// GET /reviews (excerpt). Rejected reviews are hidden unless requested with status=rejected.
+{"items": [{
+   "id": "0bd3eea3-…", "status": "pending_review", "version": 1, "follow_up_due": false,
+   "job": {"title": "Senior Backend Engineer", "company": "Fabrikam Logistics (fictional)", …},
+   "assessment": {"id": "ab411b36-…", "score": 69, "tier": "moderate",
+                  "has_blocking_gaps": false, "as_of": "2026-10-01", …}}],
+ "total": 1, "limit": 50, "offset": 0}
+```
+
+Queue filters: `status` (repeatable), `tier` (repeatable), `candidate_id`, `q` (title or
+company), `due=true` (postponed reviews whose date has passed), `sort` (`updated`, `score`,
+`assessed`, `created`), `limit`, `offset`.
+
+`GET /reviews/{id}` returns the review (with `allowed_actions`), the job, the full stored
+assessment, and `newer_assessment_available` when the last decision was based on an older
+assessment.
+
+Record a decision. Send back the `version` you last saw:
+
+```bash
+RID=0bd3eea3-...
+curl -sS -X POST $API/api/v1/reviews/$RID/decisions -H "X-API-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"action": "approve_for_drafting", "expected_version": 1, "confirm": true}'
+```
+
+```jsonc
+// 200 OK (excerpt). Approval records intent only: no document is generated.
+{"id": "0bd3eea3-…", "status": "approved_for_drafting", "version": 2,
+ "allowed_actions": ["reopen"], …}
+```
+
+| Action | Extra fields |
+| --- | --- |
+| `shortlist` | `reason` if the assessment is weak, insufficient, or has blocking gaps |
+| `postpone` | `postpone_until` (future, with timezone), optional `reason` |
+| `reject` | `confirm: true`; `reason` if the assessment is strong |
+| `approve_for_drafting` | `confirm: true`; `reason` as for `shortlist` |
+| `return_to_review` | — |
+| `reopen` | `reason` (from `rejected`, or to revoke an approval) |
+
+Errors: a stale `expected_version` or an action not allowed in the current status returns
+`409`:
+
+```json
+{"error": "conflict", "detail": "Review 0bd3eea3-… has changed (version 2); reload and retry"}
+```
+
+A missing confirmation, reason, or postpone date returns `422`.
+
+History and activity:
+
+```bash
+curl -sS $API/api/v1/reviews/$RID/events -H "X-API-Key: $KEY"         # one review, oldest first
+curl -sS "$API/api/v1/activity?actor=operator" -H "X-API-Key: $KEY"    # all reviews, newest first
+```
+
+```jsonc
+// GET /reviews/{id}/events
+[{"event_type": "created", "previous_status": null, "new_status": "pending_review",
+  "assessment_id": "ab411b36-…", "actor": "system", …},
+ {"event_type": "approve_for_drafting", "previous_status": "pending_review",
+  "new_status": "approved_for_drafting", "assessment_id": "ab411b36-…", "reason": null,
+  "actor": "operator", …}]
+```
+
+Notification preferences (no secrets are stored or returned):
+
+```bash
+curl -sS -X PATCH $API/api/v1/notification-preferences -H "X-API-Key: $KEY" \
+  -H 'Content-Type: application/json' -d '{"review_ready": false}'
+```

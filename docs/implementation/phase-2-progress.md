@@ -10,7 +10,7 @@ can resume the work without repeating it. The specification is
 | - | ------ | ----- | ------ |
 | 1 | `docs/phase-2-alignment` | Roadmap, ADR 0004, ADR 0005, specification, this log | PR open |
 | 2 | `feat/review-workflow-core` | Review states, decision events, outbox, backfill | PR open |
-| 3 | `feat/review-api` | Queue, details, decisions, activity, preferences routes | not started |
+| 3 | `feat/review-api` | Queue, details, decisions, activity, preferences routes | PR open |
 | 4 | `feat/ntfy-worker` | Publisher, dispatcher, reminders, test notification, Compose worker | not started |
 | 5 | `feat/auth-sessions` | Password login, cookie sessions, CSRF | not started |
 | 6 | `feat/review-workspace` | React SPA | not started |
@@ -35,6 +35,12 @@ Each PR is based on the previous one until it merges.
   assessments and repeated events cannot create duplicates.
 - Migration `0005_review_workflow` backfills one `pending_review` review (and a `created`
   event) per pair assessed before Phase 2, and queues no notifications.
+- PR 3: routes are `/reviews`, `/reviews/summary`, `/reviews/{id}`,
+  `/reviews/{id}/decisions`, `/reviews/{id}/events`, `/activity`, and
+  `/notification-preferences`. Job and assessment details are embedded in the review detail
+  rather than duplicated as `/opportunities` routes. The queue returns `{items, total, limit,
+  offset}`; search escapes `%` and `_`. ntfy status and test routes move to PR 4 with the
+  adapter.
 
 ## Testing log
 
@@ -46,3 +52,7 @@ Each PR is based on the previous one until it merges.
 ## Known limitations / open issues
 
 - None yet.
+- PR 3: 160 tests pass (11 API tests: queue contents and sort, filters and search,
+  pagination, rejected hidden by default, detail, decision flow and history, 409/422/404
+  errors, weak-tier override, summary and due follow-ups, activity filters, preferences,
+  auth).

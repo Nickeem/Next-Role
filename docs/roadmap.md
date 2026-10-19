@@ -38,7 +38,7 @@ Pull requests, in order:
       workspace and session authentication).
 - [x] Review workflow core: review state machine, decision events, notification outbox,
       backfill of existing assessments.
-- [ ] Review API: queue summary and list, details, decisions, activity, notification
+- [x] Review API: queue summary and list, details, decisions, activity, notification
       preferences.
 - [ ] ntfy worker: publisher adapter, outbox dispatcher with retries, postponed-review
       reminders, test notification, Compose `worker` service.

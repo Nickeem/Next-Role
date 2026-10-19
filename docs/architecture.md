@@ -119,6 +119,10 @@ state, and appends a `review_events` row, all in one transaction. Invalid transi
 `ConflictError` (409); missing confirmation, reason, or postpone date raise
 `InvalidInputError` (422). Decisions never queue notifications.
 
+The review routes (`api/routes/reviews.py`) are thin. Read models for the queue, summary,
+details, and activity live in `review/queries.py`, and join reviews to their job and latest
+assessment in SQL so the queue can filter and sort server-side.
+
 ## Security and safety
 
 - **Authentication.** An API key in the `X-API-Key` header, compared in constant time. The
@@ -140,6 +144,6 @@ state, and appends a `review_events` row, all in one transaction. Invalid transi
 ## Not yet implemented
 
 There are no background workers yet: queued notifications are not published until the
-worker lands. There are no review API routes or frontend yet, no job discovery, documents, or
+worker lands. There is no frontend yet, no job discovery, documents, or
 applications, and no multi-user accounts. The data model is designed so that each can be added as new tables that reference
 opportunities, candidates, and assessments, without restructuring existing ones.

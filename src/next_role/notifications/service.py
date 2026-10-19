@@ -19,6 +19,10 @@ from next_role.notifications.models import (
     NotificationPreferences,
     OutboxStatus,
 )
+from next_role.notifications.schemas import (
+    NotificationPreferencesOut,
+    NotificationPreferencesUpdate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +55,28 @@ def get_preferences(session: Session) -> NotificationPreferences:
     prefs = session.get(NotificationPreferences, OPERATOR_ID)
     return prefs or NotificationPreferences(
         operator_id=OPERATOR_ID, review_ready=True, review_postponed_due=True
+    )
+
+
+def update_preferences(
+    session: Session, update: NotificationPreferencesUpdate
+) -> NotificationPreferences:
+    prefs = session.get(NotificationPreferences, OPERATOR_ID)
+    if prefs is None:
+        prefs = get_preferences(session)
+        session.add(prefs)
+    for field, value in update.model_dump(exclude_none=True).items():
+        setattr(prefs, field, value)
+    session.flush()
+    session.refresh(prefs)
+    return prefs
+
+
+def preferences_out(prefs: NotificationPreferences) -> NotificationPreferencesOut:
+    return NotificationPreferencesOut(
+        review_ready=prefs.review_ready,
+        review_postponed_due=prefs.review_postponed_due,
+        updated_at=prefs.updated_at,
     )
 
 
