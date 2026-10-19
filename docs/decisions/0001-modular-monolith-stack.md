@@ -41,5 +41,5 @@ the source of truth.
 
 - One deployable image, used for both migrations and the API.
 - LLM extraction, when enabled, adds latency to `POST /jobs`, bounded by the timeout and one
-  retry. Moving extraction to a worker is a Phase 2 item.
+  retry. Moving extraction to a worker is planned for Phase 4 (see the roadmap).
 - PostgreSQL is required for development tests. A compose file provides it.
