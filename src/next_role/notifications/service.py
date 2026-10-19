@@ -7,22 +7,32 @@ or job details; the click path leads to a page that requires login.
 
 import logging
 import uuid
+from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from next_role.errors import RateLimitedError
 from next_role.notifications.models import (
     NotificationEventType,
     NotificationOutbox,
     NotificationPreferences,
     OutboxStatus,
 )
+from next_role.notifications.schemas import (
+    DeliveryStatusOut,
+    NotificationPreferencesOut,
+    NotificationPreferencesUpdate,
+)
 
 logger = logging.getLogger(__name__)
 
 OPERATOR_ID = "operator"
+TEST_INTERVAL = timedelta(seconds=60)
+# Advisory lock key that serializes test-notification requests (arbitrary, app-unique).
+_TEST_LOCK_KEY = 0x6E727465737431
 
 _MESSAGES: dict[NotificationEventType, dict[str, Any]] = {
     NotificationEventType.REVIEW_READY: {
@@ -51,6 +61,28 @@ def get_preferences(session: Session) -> NotificationPreferences:
     prefs = session.get(NotificationPreferences, OPERATOR_ID)
     return prefs or NotificationPreferences(
         operator_id=OPERATOR_ID, review_ready=True, review_postponed_due=True
+    )
+
+
+def update_preferences(
+    session: Session, update: NotificationPreferencesUpdate
+) -> NotificationPreferences:
+    prefs = session.get(NotificationPreferences, OPERATOR_ID)
+    if prefs is None:
+        prefs = get_preferences(session)
+        session.add(prefs)
+    for field, value in update.model_dump(exclude_none=True).items():
+        setattr(prefs, field, value)
+    session.flush()
+    session.refresh(prefs)
+    return prefs
+
+
+def preferences_out(prefs: NotificationPreferences) -> NotificationPreferencesOut:
+    return NotificationPreferencesOut(
+        review_ready=prefs.review_ready,
+        review_postponed_due=prefs.review_postponed_due,
+        updated_at=prefs.updated_at,
     )
 
 
@@ -99,3 +131,50 @@ def enqueue(
         "notification queued", extra={"outbox_id": str(row_id), "event_type": event_type.value}
     )
     return session.scalar(select(NotificationOutbox).where(NotificationOutbox.id == row_id))
+
+
+def queue_test(session: Session, now: datetime) -> NotificationOutbox:
+    """Queue a test notification, at most one per TEST_INTERVAL."""
+    # Serialize concurrent requests so two cannot both pass the interval check. The lock is
+    # held until the transaction commits, by which time this request's row is visible.
+    session.execute(select(func.pg_advisory_xact_lock(_TEST_LOCK_KEY)))
+    last = session.scalar(
+        select(func.max(NotificationOutbox.created_at)).where(
+            NotificationOutbox.event_type == NotificationEventType.INTEGRATION_TEST
+        )
+    )
+    if last is not None and now - last < TEST_INTERVAL:
+        raise RateLimitedError("A test notification was sent recently; try again in a minute")
+    row = enqueue(
+        session,
+        NotificationEventType.INTEGRATION_TEST,
+        event_key=f"integration.test:{uuid.uuid4()}",
+        click_path="/settings",
+    )
+    if row is None:  # pragma: no cover - tests cannot be disabled and keys are unique
+        raise RuntimeError("test notification was not queued")
+    return row
+
+
+def delivery_status(session: Session) -> DeliveryStatusOut:
+    counts = dict(
+        session.execute(
+            select(NotificationOutbox.status, func.count()).group_by(NotificationOutbox.status)
+        ).all()
+    )
+    last_sent_at = session.scalar(select(func.max(NotificationOutbox.sent_at)))
+    last_error = session.execute(
+        select(NotificationOutbox.last_error, NotificationOutbox.updated_at)
+        .where(
+            NotificationOutbox.last_error.is_not(None),
+            NotificationOutbox.status != OutboxStatus.CANCELLED,
+        )
+        .order_by(NotificationOutbox.updated_at.desc())
+        .limit(1)
+    ).first()
+    return DeliveryStatusOut(
+        counts={status: counts.get(status, 0) for status in OutboxStatus},
+        last_accepted_at=last_sent_at,
+        last_error=last_error[0] if last_error else None,
+        last_error_at=last_error[1] if last_error else None,
+    )

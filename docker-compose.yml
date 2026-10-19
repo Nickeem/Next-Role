@@ -41,5 +41,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # Publishes queued notifications and postponed-review reminders. Same image as the API;
+  # idle unless NEXT_ROLE_NTFY_ENABLED=true.
+  worker:
+    build: .
+    command: ["python", "-m", "next_role.worker"]
+    env_file: .env
+    environment:
+      NEXT_ROLE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-next_role}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-next_role}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-m", "next_role.worker", "--check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
 volumes:
   pgdata:

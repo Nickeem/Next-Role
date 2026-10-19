@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end Phase 1 demo against a running API, using the synthetic examples.
+# End-to-end demo (assessment, then review) against a running API, using the synthetic examples.
 #   API_URL (default http://localhost:8000) and NEXT_ROLE_API_KEY (or .env) must be set.
 set -euo pipefail
 
@@ -38,3 +38,18 @@ ASSESSMENT_ID=$(echo "$ASSESSMENT" | field "['assessment']['id']")
 echo "$ASSESSMENT" | python3 scripts/print_assessment.py
 echo "== Retrieve stored assessment"
 call GET "/api/v1/assessments/$ASSESSMENT_ID" | field "['tier']"
+
+echo "== Review opened by the assessment (Phase 2)"
+REVIEW=$(call GET "/api/v1/reviews?candidate_id=$CANDIDATE_ID&status=pending_review&status=shortlisted&status=postponed&status=rejected&status=approved_for_drafting" \
+  | python3 -c "import json,sys; items=[i for i in json.load(sys.stdin)['items'] if i['job_id']=='$JOB_ID']; print(items[0]['id'], items[0]['version'], items[0]['status'])")
+read -r REVIEW_ID REVIEW_VERSION REVIEW_STATUS <<<"$REVIEW"
+echo "review_id=$REVIEW_ID status=$REVIEW_STATUS version=$REVIEW_VERSION"
+
+if [[ "$REVIEW_STATUS" == "pending_review" ]]; then
+  echo "== Shortlist it (no documents are generated)"
+  call POST "/api/v1/reviews/$REVIEW_ID/decisions" \
+    "{\"action\": \"shortlist\", \"expected_version\": $REVIEW_VERSION}" | field "['status']"
+fi
+echo "== Review history"
+call GET "/api/v1/reviews/$REVIEW_ID/events" \
+  | python3 -c "import json,sys; [print(e['created_at'][:19], e['actor'], e['event_type'], '->', e['new_status']) for e in json.load(sys.stdin)]"

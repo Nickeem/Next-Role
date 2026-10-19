@@ -54,6 +54,27 @@ uv run mypy                 # strict, on src/
 uv run pytest
 ```
 
+## Frontend
+
+The web workspace is a Vite + React + TypeScript app in `frontend/` (ADR 0005). Node 22.
+
+```bash
+cd frontend
+npm ci
+npm run dev          # http://localhost:5173, proxies /api to http://localhost:8000
+npm run typecheck
+npm test             # vitest + Testing Library, fetch mocked
+npm run build        # frontend/dist
+```
+
+For the dev server, run the API with `NEXT_ROLE_UI_PASSWORD` set and sign in through the UI.
+To serve a build from FastAPI locally, set `NEXT_ROLE_STATIC_DIR=frontend/dist`. The Docker
+image builds the frontend in a Node stage and sets this automatically.
+
+`src/types.ts` mirrors the API schemas, and `labels.ts` mirrors
+`review.workflow.overrides_assessment`; `labels.test.ts` uses the same cases as the Python
+test, so keep both in sync when the rules change.
+
 ## Migrations
 
 ```bash

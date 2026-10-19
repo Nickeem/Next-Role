@@ -10,11 +10,11 @@ can resume the work without repeating it. The specification is
 | - | ------ | ----- | ------ |
 | 1 | `docs/phase-2-alignment` | Roadmap, ADR 0004, ADR 0005, specification, this log | PR open |
 | 2 | `feat/review-workflow-core` | Review states, decision events, outbox, backfill | PR open |
-| 3 | `feat/review-api` | Queue, details, decisions, activity, preferences routes | not started |
-| 4 | `feat/ntfy-worker` | Publisher, dispatcher, reminders, test notification, Compose worker | not started |
-| 5 | `feat/auth-sessions` | Password login, cookie sessions, CSRF | not started |
-| 6 | `feat/review-workspace` | React SPA | not started |
-| 7 | `chore/phase-2-hardening` | Security, accessibility, runbook, release checklist | not started |
+| 3 | `feat/review-api` | Queue, details, decisions, activity, preferences routes | PR open |
+| 4 | `feat/ntfy-worker` | Publisher, dispatcher, reminders, test notification, Compose worker | PR open |
+| 5 | `feat/auth-sessions` | Password login, cookie sessions, CSRF | PR open |
+| 6 | `feat/review-workspace` | React SPA | PR open |
+| 7 | `chore/phase-2-hardening` | Security, accessibility, runbook, release checklist | PR open |
 
 Each PR is based on the previous one until it merges.
 
@@ -35,6 +35,61 @@ Each PR is based on the previous one until it merges.
   assessments and repeated events cannot create duplicates.
 - Migration `0005_review_workflow` backfills one `pending_review` review (and a `created`
   event) per pair assessed before Phase 2, and queues no notifications.
+- PR 3: routes are `/reviews`, `/reviews/summary`, `/reviews/{id}`,
+  `/reviews/{id}/decisions`, `/reviews/{id}/events`, `/activity`, and
+  `/notification-preferences`. Job and assessment details are embedded in the review detail
+  rather than duplicated as `/opportunities` routes. The queue returns `{items, total, limit,
+  offset}`; search escapes `%` and `_`. ntfy status and test routes move to PR 4 with the
+  adapter.
+- PR 4: the worker claims one outbox row per transaction and holds the row lock during the
+  bounded HTTP call (`NEXT_ROLE_NTFY_TIMEOUT_SECONDS`), instead of a lease column. A crash
+  releases the lock and leaves the row pending.
+- Outbox rows older than `NEXT_ROLE_NOTIFICATION_MAX_AGE_HOURS` are cancelled instead of sent
+  late. Postponed reminders are re-checked at send time and cancelled if the review is no
+  longer postponed to the same date. Migration `0006_outbox_cancelled` adds the status.
+- 401/403 and other 4xx fail immediately; timeouts, connection errors, 429, and 5xx retry.
+  Stored errors are an HTTP status or exception class only.
+- The test notification is limited to one per minute (429) and needs ntfy enabled (409).
+- The worker lowers the `httpx` logger to WARNING, because request logs include the topic URL.
+- PR 5: `require_auth` replaces `require_api_key`. The CSRF token is random per session and
+  stored as-is (it is not a credential on its own); the session token is stored as a SHA-256.
+  `GET /auth/session` returns the CSRF token so the SPA can recover it after a reload.
+  Unauthenticated requests now say "Not authenticated" instead of "Missing or invalid API
+  key" (still 401). The login throttle is in memory per API process.
+- PR 6: dependencies pinned to the newest patch within majors known to be stable here
+  (React 19.3, React Router 7.18, Vite 7.3, TypeScript 5.9, Vitest 3.2). TypeScript 7, Vite
+  8, and Vitest 5 were available but newer than this work was validated against.
+  `@testing-library/jest-dom` is 6.9.1 because 6.10.0 was deprecated as breaking.
+- No CSS framework or component library: tokens and layout are in `frontend/src/styles.css`.
+- The review table becomes stacked cards below 720px. `position: sticky` cannot keep the
+  side-column decision panel in view while scrolling the main column on mobile, so phones get
+  a fixed "Your decision" button that jumps to the panel.
+- PR 7: the decision dialog traps Tab focus. The worker writes a heartbeat used by a Compose
+  healthcheck. `scripts/demo.sh` now shows the review step. Added the operations runbook and
+  the release checklist.
+
+## Review follow-up
+
+Automated review comments on the PRs were addressed in follow-up commits on each branch,
+merged up the stack:
+
+- PR 1 (#2, docs): history also rejects deletes and cascades; TLS and the private-network cookie
+  option are specified; login and session probe are documented as unauthenticated; only the
+  first assessment queues `review.ready`.
+- PR 2 (#3): `review_events` trigger covers `DELETE`; its foreign key is `ON DELETE RESTRICT`.
+  The runbook describes the deliberate erasure procedure.
+- PR 4 (#5): the test-notification interval is enforced under a transaction-scoped advisory lock;
+  the backoff exponent is capped so a large attempt budget cannot overflow.
+- PR 5 (#6): the login throttle reserves an attempt atomically before the password check and
+  bounds how many client addresses it tracks; `GET /auth/session` returns 401 for a wrong
+  `X-API-Key` instead of falling back to the cookie.
+- PR 6 (#7): the workspace is scoped to one candidate (header selector when there are several,
+  candidate named on the detail page); sign-out only leaves the workspace after the server
+  confirms it; Decisions is paginated; a failed history load shows an error with retry.
+- PR 7 (#8): the worker heartbeat is touched after each dispatched row, and the health threshold
+  allows a publish that runs to its timeout.
+- A `frontend/node_modules` tree was accidentally committed in the PR 2 (#3) follow-up and removed
+  in the next commit (no force-push). Squash-merging #3 keeps it out of `main`'s history.
 
 ## Testing log
 
@@ -45,4 +100,53 @@ Each PR is based on the previous one until it merges.
 
 ## Known limitations / open issues
 
-- None yet.
+- Not yet tested against the maintainer's own ntfy server (needs its URL and token); tested
+  against a local ntfy v2.11.0 container with the recommended ACLs.
+- Not yet checked with a real screen reader; checked by role/label queries in tests, keyboard
+  navigation in Playwright, and contrast calculations.
+- The login throttle is per API process and keyed by client address; behind a reverse proxy,
+  uvicorn must trust forwarded headers (runbook).
+- The API port is published on all interfaces by default (unchanged from Phase 1); the
+  runbook explains binding it to loopback behind a proxy.
+- Delivery is at least once; a crash between ntfy accepting a message and the commit resends
+  it.
+- `frontend/src/types.ts` is maintained by hand; generating it from OpenAPI is a possible
+  follow-up.
+- Phase 3 must check the current review state and its assessment before drafting, and block
+  revoking an approval once drafting has started.
+- PR 3: 160 tests pass (11 API tests: queue contents and sort, filters and search,
+  pagination, rejected hidden by default, detail, decision flow and history, 409/422/404
+  errors, weak-tier override, summary and due follow-ups, activity filters, preferences,
+  auth).
+- PR 4: 190 tests pass (17 unit tests for the ntfy adapter, configuration, and backoff; 13
+  integration tests for dispatch, retries, attempt budget, permanent failure, expiry,
+  `SKIP LOCKED`, reminders once per date, rescheduling, leaving postponed, disabled
+  reminders, status and test routes, rate limit).
+- PR 4 manual check against a real ntfy v2.11.0 container with `deny-all` access, a
+  write-only publisher token, and a read-only subscriber: `python -m next_role.worker --once`
+  published `review.ready`; the subscriber received it with the click link and no personal
+  data; anonymous and publisher-token reads returned 403. A wrong token produced `failed`
+  ("HTTP 401", one attempt); with ntfy stopped, the row stayed `pending` with a backoff
+  ("ConnectError"). `docker compose up --build --wait` started db, migrate, api, and worker;
+  readiness reported `0006_outbox_cancelled`.
+- PR 5: 200 tests pass (10 integration tests: cookie flags and hashed storage, wrong
+  password and throttle, reads with the cookie, CSRF required on writes, CSRF recovery after
+  reload, logout revokes a replayed cookie, expiry, API key without CSRF, a wrong API key does
+  not fall back to the cookie, login unavailable without a password, short password refused).
+- PR 6: 209 Python tests pass (+9 SPA-serving tests: client routes with CSP, cached assets,
+  traversal, API/health/docs not shadowed, missing index fails fast). 18 frontend tests pass
+  (override-rule parity with Python, CSRF only on writes, query encoding and errors, detail
+  page labels and evidence, "Evidence unavailable", untrusted description and `javascript:`
+  link, approve requires confirmation and reason, 409 reloads, Escape cancels, queue
+  rendering, filters sent to the API, empty state).
+- PR 6 manual check: `docker compose up --build` (frontend built in the image), synthetic
+  data seeded, then a Playwright (v1.55 Docker image) run against the real stack at 1440px
+  and 390px: wrong password shows an error; login; queue; detail; approve through the dialog;
+  history shows the decision; Decisions, Activity, Settings render; first Tab stop is the skip
+  link; no horizontal overflow on mobile; no console errors other than the deliberate 401.
+  Fixed from the screenshots: missing space in "AI: Moderate match" in the table, and a
+  misleading "source fact unavailable" on preference-based evidence. WCAG contrast checked
+  for text, pills, and buttons (all at least 4.5:1).
+- PR 7: 210 Python tests, 19 frontend tests pass (+ heartbeat, + dialog focus trap). On the
+  Compose stack, db, api, and worker were all healthy, and `scripts/demo.sh` opened and
+  shortlisted the review with the expected history.

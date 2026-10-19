@@ -23,7 +23,7 @@ Delivered:
 Known limitations are listed in [matching.md](matching.md#7-known-limitations-of-the-rule-based-path)
 and [implementation/phase-1-progress.md](implementation/phase-1-progress.md).
 
-## Phase 2: Review and approval workspace (in progress)
+## Phase 2: Review and approval workspace (implemented; awaiting review and sign-off)
 
 Goal: the candidate reviews persisted assessments in a protected web workspace and records
 explicit decisions (shortlist, reject, postpone, approve for drafting), with an append-only
@@ -38,13 +38,13 @@ Pull requests, in order:
       workspace and session authentication).
 - [x] Review workflow core: review state machine, decision events, notification outbox,
       backfill of existing assessments.
-- [ ] Review API: queue summary and list, details, decisions, activity, notification
+- [x] Review API: queue summary and list, details, decisions, activity, notification
       preferences.
-- [ ] ntfy worker: publisher adapter, outbox dispatcher with retries, postponed-review
+- [x] ntfy worker: publisher adapter, outbox dispatcher with retries, postponed-review
       reminders, test notification, Compose `worker` service.
-- [ ] Session authentication for the browser (password login, cookie session, CSRF).
-- [ ] Web workspace: review queue, assessment detail, decisions, activity, settings.
-- [ ] Hardening: security and accessibility passes, runbook, release checklist.
+- [x] Session authentication for the browser (password login, cookie session, CSRF).
+- [x] Web workspace: review queue, assessment detail, decisions, activity, settings.
+- [x] Hardening: security and accessibility passes, runbook, release checklist.
 
 ## Later phases (high level, not yet planned in detail)
 

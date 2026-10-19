@@ -139,6 +139,12 @@ violet `#8D65F7` (pending), green `#20A979` (approved/shortlisted), amber `#D59A
 
 - The queue is a table on wide screens and stacked cards on narrow ones. There is no
   drag-and-drop for decisions.
+- The workspace is scoped to one candidate at a time. With more than one candidate profile,
+  a "Candidate" selector in the header scopes the queue, counts, decisions, and activity, and
+  the detail page names the candidate, so reviews of the same job are never mixed up.
+- The queue and each Decisions tab are paginated.
+- Signing out leaves the workspace only after the server has revoked the session; a failure
+  is shown and the user stays signed in.
 - Details show the stored Phase 1 score, tier, coverage, assessment date, matched
   requirements with evidence, gaps, unverified and unknown items, and the disclaimer. Missing
   evidence reads "Evidence unavailable".

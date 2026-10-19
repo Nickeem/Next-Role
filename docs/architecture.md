@@ -7,8 +7,8 @@ design are in [decisions/](decisions/).
 ## Overview
 
 Next-Role is a **modular monolith**: one Python package (`next_role`) served by FastAPI and
-backed by PostgreSQL, deployed with Docker Compose (ADR 0001). There are no background
-workers yet. Every Phase 1 operation is synchronous and fast: rule-based extraction and
+backed by PostgreSQL, deployed with Docker Compose (ADR 0001). A separate `worker` process from the same image
+publishes notifications (ADR 0004). Every request-path operation is synchronous and fast: rule-based extraction and
 matching take milliseconds. The only potentially slow call is optional LLM extraction, which
 is bounded by a timeout and one retry.
 
@@ -33,10 +33,15 @@ HTTP client ──► FastAPI routes (api/) ──► domain services ──► 
 | `jobs/` | Manual ingestion, normalization, deduplication, requirement extraction | db, skills, integrations (via protocol) |
 | `matching/` | Pure matching engine, assessment persistence, and retrieval | candidates, jobs, review |
 | `review/` | Candidate decisions: pure state machine (`workflow.py`), reviews, append-only events | matching, notifications |
-| `notifications/` | Transactional outbox and notification preferences | db |
+| `notifications/` | Transactional outbox, preferences, `NotificationPublisher` protocol, dispatcher with retries | db |
+| `integrations/ntfy.py` | ntfy HTTP publisher (httpx) | config, notifications |
+| `worker.py` | `python -m next_role.worker`: postponed-review reminders and outbox dispatch | review, notifications, integrations |
 | `integrations/llm/` | `LLMProvider` protocol, Ollama and OpenAI-compatible HTTP adapters | config, httpx |
-| `api/` | FastAPI routes, dependencies (session, API-key auth) | services |
+| `auth/` | Operator browser sessions: login, lookup, logout, login throttle | db |
+| `api/` | FastAPI routes, dependencies (database session, API-key or cookie auth with CSRF) | services |
+| `api/spa.py` | Serves the built web workspace with an `index.html` fallback and a strict CSP | — |
 | `main.py` | App factory: wiring, middleware, error handlers | everything |
+| `frontend/` | Vite + React SPA: queue, review detail and decisions, activity, settings | API |
 
 Boundaries:
 
@@ -119,10 +124,42 @@ state, and appends a `review_events` row, all in one transaction. Invalid transi
 `ConflictError` (409); missing confirmation, reason, or postpone date raise
 `InvalidInputError` (422). Decisions never queue notifications.
 
+## Worker
+
+`python -m next_role.worker` runs one loop, every `NEXT_ROLE_WORKER_POLL_SECONDS`:
+
+1. `review.service.queue_due_reminders` queues a `review.postponed_due` notification for each
+   postponed review whose date has passed. Its `event_key` includes the date, so it is queued
+   once per date.
+2. `notifications.dispatcher.dispatch_pending` claims due outbox rows one at a time
+   (`FOR UPDATE SKIP LOCKED`, one transaction each), cancels expired or no-longer-relevant
+   ones, and publishes the rest through the `NotificationPublisher` (ntfy). Retryable failures
+   are rescheduled with exponential backoff; the rest are marked `failed`.
+
+With ntfy disabled the worker idles. Each loop iteration, and each notification dispatched
+within a batch, touches a heartbeat file; the Compose healthcheck
+(`python -m next_role.worker --check`) fails if it is older than
+max(60 s, 3 × poll, 2 × (poll + ntfy timeout)). Operations:
+[operations/ntfy.md](operations/ntfy.md).
+
+The review routes (`api/routes/reviews.py`) are thin. Read models for the queue, summary,
+details, and activity live in `review/queries.py`, and join reviews to their job and latest
+assessment in SQL so the queue can filter and sort server-side.
+
 ## Security and safety
 
-- **Authentication.** An API key in the `X-API-Key` header, compared in constant time. The
-  app refuses to start without a key unless `NEXT_ROLE_AUTH_DISABLED=true` is set
+- **Authentication** (`api/deps.py`, ADR 0005). Every `/api/v1` route except
+  `/auth/*` requires one of:
+  - an API key in the `X-API-Key` header, compared in constant time (scripts). A key that is
+    present but wrong is rejected without falling back to the cookie;
+  - a browser session cookie (`next_role_session`: `HttpOnly`, `Secure`, `SameSite=Strict`)
+    from `POST /auth/login` with `NEXT_ROLE_UI_PASSWORD`. Only a SHA-256 of the token is
+    stored (`operator_sessions`), sessions expire after `NEXT_ROLE_SESSION_TTL_HOURS`, and
+    logout deletes the row. State-changing requests made with the cookie must send the
+    session's `X-CSRF-Token`. Failed logins are throttled per client (5 per 5 minutes, in
+    memory).
+
+  The app refuses to start without an API key unless `NEXT_ROLE_AUTH_DISABLED=true` is set
   explicitly. Health endpoints are unauthenticated.
 - **Untrusted job text.**
   - Rule-based extraction only parses the text.
@@ -134,12 +171,16 @@ state, and appends a `review_events` row, all in one transaction. Invalid transi
   - Validation errors never echo submitted input.
   - Logs carry IDs and counts only.
   - Candidate data never goes to an LLM, and external providers need an explicit opt-in.
+- **Web workspace.** Served from the API's origin (`api/spa.py`) with a strict
+  Content-Security-Policy (`script-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options:
+  DENY`, and `Referrer-Policy: no-referrer` on every response. Job descriptions are rendered
+  as text, never HTML, and source links are shown only for `http(s)` URLs.
 - **Input limits.** Description length is capped (`NEXT_ROLE_MAX_JOB_DESCRIPTION_CHARS`),
   and unknown fields are rejected (`extra="forbid"`).
 
 ## Not yet implemented
 
-There are no background workers yet: queued notifications are not published until the
-worker lands. There are no review API routes or frontend yet, no job discovery, documents, or
-applications, and no multi-user accounts. The data model is designed so that each can be added as new tables that reference
-opportunities, candidates, and assessments, without restructuring existing ones.
+There is no job discovery, document generation, or application tracking, and there are no
+multi-user accounts. The data model is designed so that each can be added as new tables that
+reference opportunities, candidates, reviews, and assessments, without restructuring existing
+ones.
