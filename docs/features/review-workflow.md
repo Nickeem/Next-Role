@@ -82,7 +82,8 @@ current review state and its assessment before it starts drafting.
 
 - Each change runs in one transaction that locks the review row, checks `expected_version`
   (stale → `409`), updates the state and version, and appends an event.
-- Events are append-only. A database trigger rejects updates to `review_events`.
+- Events are append-only. A database trigger rejects updates and deletes on `review_events`,
+  and its foreign key is `ON DELETE RESTRICT`, so cascades cannot remove history either.
 - Invalid transitions → `409`. Missing reason, confirmation, or a past date → `422`.
 - Actor is `operator` for decisions and `system` for assessment-driven events, until
   per-user accounts exist.
@@ -109,7 +110,9 @@ current review state and its assessment before it starts drafting.
 
 ## 5. API (summary)
 
-All routes are under `/api/v1` and require authentication. Exact schemas are in OpenAPI.
+All routes are under `/api/v1` and require authentication, except `POST /auth/login` (which
+creates a session) and `GET /auth/session` (which reports whether one exists). Exact schemas
+are in OpenAPI.
 
 | Route | Purpose |
 | --- | --- |
@@ -122,6 +125,9 @@ All routes are under `/api/v1` and require authentication. Exact schemas are in 
 | `GET`/`PATCH /notification-preferences` | Enable or disable each event type |
 | `GET /integrations/ntfy/status` | Configured, last accepted publish, pending/failed counts, last redacted error |
 | `POST /integrations/ntfy/test` | Queue a test notification (rate-limited) |
+| `POST /auth/login` | Exchange the operator password for a session cookie and CSRF token (no auth; rate-limited) |
+| `GET /auth/session` | Whether the caller is signed in, and the CSRF token (no auth) |
+| `POST /auth/logout` | End the current session |
 
 ## 6. Web workspace
 
@@ -149,8 +155,9 @@ violet `#8D65F7` (pending), green `#20A979` (approved/shortlisted), amber `#D59A
       documents or applications are produced.
 - [ ] Every change is persisted in an append-only history; invalid and stale changes are
       rejected.
-- [ ] A new assessment produces one `review.ready` outbox row; a postponed review produces
-      one reminder for its current date.
+- [ ] The first assessment of a candidate and opportunity creates the review and one
+      `review.ready` outbox row; later assessments only record `assessment_updated`. A
+      postponed review produces one reminder for its current date.
 - [ ] Notifications reach the configured ntfy server with server-held credentials and link
       back to the app.
 - [ ] ntfy downtime does not block review; retries and failures are visible.

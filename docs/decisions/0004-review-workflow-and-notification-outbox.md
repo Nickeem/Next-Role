@@ -23,7 +23,10 @@ reminders are the first work that must happen outside a request.
   [features/review-workflow.md](../features/review-workflow.md).
 - **Append-only `review_events`**: one row per decision or system event, with the previous
   and new state, the assessment the decision was based on, the reason, actor, and request ID.
-  A trigger rejects `UPDATE` on the table.
+  A trigger rejects `UPDATE` and `DELETE` on the table, and the foreign key to the review
+  is `ON DELETE RESTRICT`, so neither a direct delete nor a cascade from a deleted review,
+  job, or candidate can erase history. Erasing personal data is a deliberate maintenance
+  procedure (see the runbook), not something the application can do.
 - **Concurrency:** each change locks the review row (`SELECT … FOR UPDATE`) and compares the
   client's `expected_version`. A mismatch returns `409`.
 - **Reviews are created inside `run_assessment`**, in the same transaction as the first new
