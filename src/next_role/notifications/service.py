@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 OPERATOR_ID = "operator"
 TEST_INTERVAL = timedelta(seconds=60)
+# Advisory lock key that serializes test-notification requests (arbitrary, app-unique).
+_TEST_LOCK_KEY = 0x6E727465737431
 
 _MESSAGES: dict[NotificationEventType, dict[str, Any]] = {
     NotificationEventType.REVIEW_READY: {
@@ -133,6 +135,9 @@ def enqueue(
 
 def queue_test(session: Session, now: datetime) -> NotificationOutbox:
     """Queue a test notification, at most one per TEST_INTERVAL."""
+    # Serialize concurrent requests so two cannot both pass the interval check. The lock is
+    # held until the transaction commits, by which time this request's row is visible.
+    session.execute(select(func.pg_advisory_xact_lock(_TEST_LOCK_KEY)))
     last = session.scalar(
         select(func.max(NotificationOutbox.created_at)).where(
             NotificationOutbox.event_type == NotificationEventType.INTEGRATION_TEST
