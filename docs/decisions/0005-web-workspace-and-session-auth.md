@@ -20,6 +20,12 @@ Network location (LAN only) is not treated as sufficient protection for career d
   a random token, stored hashed in PostgreSQL with an expiry, and sent as an `HttpOnly`,
   `Secure`, `SameSite=Strict` cookie. Logout deletes the session. Login attempts are
   rate-limited.
+- **TLS:** browsers only send a `Secure` cookie over HTTPS (or to `localhost`). The supported
+  deployment terminates TLS at a reverse proxy in front of the `api` service (Caddy,
+  Traefik, nginx); the runbook covers it. For a private network without TLS,
+  `NEXT_ROLE_SESSION_COOKIE_SECURE=false` drops the `Secure` flag. It is off by default,
+  documented as development or private-network only, and does not change `HttpOnly`,
+  `SameSite=Strict`, or CSRF.
 - **CSRF:** cookie-authenticated requests that change state must send an `X-CSRF-Token`
   header matching the token bound to the session, in addition to `SameSite=Strict`.
 - **`X-API-Key` keeps working** for scripts and the demo. A request is authenticated by either
