@@ -6,6 +6,37 @@ RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
+# PDF/DOCX renderer (ADR 0007): the same package on the official Playwright image, which
+# ships Chromium and the Liberation fonts. Its version must match the pinned playwright.
+# Not the default target: build it with --target renderer (Compose does).
+FROM mcr.microsoft.com/playwright/python:v1.55.0-noble AS renderer
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON_DOWNLOADS=never \
+    PATH="/opt/venv/bin:$PATH" \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    NEXT_ROLE_PRINT_BUNDLE_DIR=/app/print \
+    HOME=/tmp
+
+COPY --from=ghcr.io/astral-sh/uv:0.8.15 /uv /usr/local/bin/uv
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev --group renderer --no-install-project --python /usr/bin/python3
+COPY src ./src
+RUN uv sync --frozen --no-dev --group renderer --python /usr/bin/python3
+COPY --from=frontend /frontend/dist ./print
+
+# Same uid as the API, which reads the files (mode 0640) from the shared volume.
+RUN useradd --system --uid 10001 app \
+    && mkdir -p /var/lib/next-role/artifacts \
+    && chown 10001 /var/lib/next-role/artifacts
+USER app
+CMD ["python", "-m", "next_role.renderer"]
+
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -30,7 +61,9 @@ RUN uv sync --frozen --no-dev
 COPY --from=frontend /frontend/dist ./static
 ENV NEXT_ROLE_STATIC_DIR=/app/static
 
-RUN useradd --system --uid 10001 app
+RUN useradd --system --uid 10001 app \
+    && mkdir -p /var/lib/next-role/artifacts \
+    && chown 10001 /var/lib/next-role/artifacts
 USER app
 
 EXPOSE 8000

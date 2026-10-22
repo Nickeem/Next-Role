@@ -2,8 +2,8 @@
 
 Every visible string from the display model must appear in the text extracted from the file,
 in reading order. Comparison ignores case (templates may set headings in capitals),
-whitespace, and dash and quote variants. Length over the target is a warning, not a failure:
-text is never shrunk below the minimum size to fit.
+whitespace (wrapping can split a word), and dash and quote variants. Length over the target
+is a warning, not a failure: text is never shrunk below the minimum size to fit.
 """
 
 import io
@@ -53,13 +53,19 @@ class QAResult:
         }
 
 
+def _compact(text: str) -> str:
+    # Line wrapping can split even a single word in extracted text, so compare without
+    # any whitespace at all.
+    return re.sub(r"\s+", "", fold(text))
+
+
 def check_text(expected: list[str], extracted: str) -> tuple[list[str], list[str]]:
     """Strings missing from ``extracted``, and strings found only out of order."""
-    haystack = fold(extracted)
+    haystack = _compact(extracted)
     missing, out_of_order = [], []
     position = 0
     for text in expected:
-        needle = fold(text)
+        needle = _compact(text)
         if not needle:
             continue
         found = haystack.find(needle, position)

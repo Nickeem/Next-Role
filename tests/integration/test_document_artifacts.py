@@ -428,3 +428,32 @@ def test_failed_initial_runs_notify(
     [(event, key)] = _outbox(session_factory)
     assert event == NotificationEventType.DOCUMENTS_FAILED.value
     assert key.startswith("documents.failed:run:")
+
+
+def test_preview_lays_out_current_and_unsaved_content(
+    client: TestClient, drafted: dict[str, Any]
+) -> None:
+    assert drafted["preview"]["resume"]["header"]["name"] == "Alex Example"
+    assert drafted["preview"]["cover_letter"]["salutation"] == "Dear Hiring Team,"
+
+    url = f"/api/v1/bundles/{drafted['id']}/preview"
+    content = drafted["resume"]["content"]
+    content["header"]["name"] = "Someone Else"  # ignored: the header comes from the profile
+    skills = next(s for s in content["sections"] if s["type"] == "skills")
+    skills["title"] = "Toolbox"
+    response = client.post(
+        url,
+        json={
+            "kind": "resume",
+            "content": content,
+            "settings": {"template_id": "modern-deedy", "hidden_sections": ["education"]},
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["display"]["header"]["name"] == "Alex Example"
+    titles = [s["title"] for s in body["display"]["sections"]]
+    assert "Toolbox" in titles and "Education" not in titles
+    assert body["tokens"]["template_id"] == "modern-deedy"
+    bad = client.post(url, json={"kind": "resume", "content": {"sections": "nope"}})
+    assert bad.status_code == 422

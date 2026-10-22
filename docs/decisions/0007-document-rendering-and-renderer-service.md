@@ -1,6 +1,6 @@
 # ADR 0007: Rendering documents in an isolated renderer service
 
-- Status: proposed (Phase 3)
+- Status: accepted (Phase 3)
 - Date: 2026-10-22
 
 ## Context
@@ -8,7 +8,8 @@
 Phase 3 renders each document revision to PDF and DOCX in one of three templates. The PDF
 must be text-based and must look like the preview in the web workspace. The plan fixes
 HTML/CSS rendered by Chromium (Playwright) for PDF, and a separate native Word renderer for
-DOCX. Chromium adds roughly 400 MB to an image and is a large attack surface. It renders
+DOCX. Chromium and its dependencies make an image several gigabytes larger (the
+Playwright image is about 3.6 GB) and are a large attack surface. It renders
 content derived from untrusted job text and model output. Today the system has one image,
 used by `migrate`, `api`, and `worker` (ADR 0001, ADR 0004).
 
@@ -16,15 +17,19 @@ used by `migrate`, `api`, and `worker` (ADR 0001, ADR 0004).
 
 - **A `renderer` Compose service** built from the same repository and Python package, as a
   separate Dockerfile target (`renderer`). It is based on the official Playwright Python
-  image, pinned to an exact version, and runs `python -m next_role.renderer`. The `api` and
+  image, pinned to an exact version (`v1.55.0-noble`, matching the `playwright==1.55.0` pin),
+  and runs `python -m next_role.renderer` as uid 10001, the API's uid, so the API can read
+  the files (mode 0640) from the shared volume. The `api` and
   `worker` image stays without a browser.
 - **No API between services.** The renderer claims `document_artifacts` rows in `pending`
   from PostgreSQL (`FOR UPDATE SKIP LOCKED` with a lease), like the outbox. It writes files
   to the shared artifact volume and marks rows `ready` or `failed`. It renders both PDF and
   DOCX, so all artifact work and QA live in one place.
 - **Templates are React components** in `frontend/src/templates/`, used by the SPA preview
-  and by a second Vite entry, `print.html`. The Dockerfile's frontend stage builds both. The
-  renderer image contains only the print bundle.
+  and by a second Vite entry, `print.html`, whose own CSP allows only its bundled files.
+  Both render the server's display model (`documents/display.py`), so layout decisions are
+  made once. The Dockerfile's frontend stage builds both; the renderer image copies the
+  built frontend and loads only `print.html` and its assets from it.
 - **The browser has no network.** Playwright serves the bundled print files through
   `page.route` from the local directory and aborts every other request. The document JSON is
   injected after load and rendered as text (React escaping). There are no `dangerouslySetInnerHTML`

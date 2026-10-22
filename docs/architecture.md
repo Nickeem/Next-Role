@@ -36,14 +36,14 @@ HTTP client ──► FastAPI routes (api/) ──► domain services ──► 
 | `documents/` | Phase 3 (in progress): display model shared by every renderer (`display.py`), DOCX renderer and file QA (`docx_renderer.py`, `qa.py`), artifact queue, completion and notifications (`artifacts.py`), approval of exact files (`service.approve`); runs queued on approval and claimed with a lease (`runs.py`), input snapshots, fact selection and drafting with an optional LLM (`drafting.py`), pure claim checks (`verification.py`), bundle edits, questions and confirmations (`service.py`), the worker executor (`generation.py`), template registry, artifact storage | candidates, jobs, matching, review, integrations (via protocol) |
 | `notifications/` | Transactional outbox, preferences, `NotificationPublisher` protocol, dispatcher with retries | db |
 | `integrations/ntfy.py` | ntfy HTTP publisher (httpx) | config, notifications |
-| `renderer.py` | `python -m next_role.renderer`: claims pending files with a lease, renders DOCX (and PDF where Playwright is installed), checks them, stores them atomically, sweeps orphans | documents |
+| `renderer.py` | `python -m next_role.renderer` (Compose `renderer` service, Playwright image): claims pending files with a lease, renders PDF (`documents/pdf_renderer.py`, Chromium) and DOCX, checks them, stores them atomically, sweeps orphans | documents |
 | `worker.py` | `python -m next_role.worker`: postponed-review reminders and outbox dispatch | review, notifications, integrations |
 | `integrations/llm/` | `LLMProvider` protocol, Ollama and OpenAI-compatible HTTP adapters | config, httpx |
 | `auth/` | Operator browser sessions: login, lookup, logout, login throttle | db |
 | `api/` | FastAPI routes, dependencies (database session, API-key or cookie auth with CSRF) | services |
 | `api/spa.py` | Serves the built web workspace with an `index.html` fallback and a strict CSP | — |
 | `main.py` | App factory: wiring, middleware, error handlers | everything |
-| `frontend/` | Vite + React SPA: queue, review detail and decisions, activity, settings | API |
+| `frontend/` | Vite + React SPA: queue, review detail and decisions, activity, settings. `src/templates/` holds the resume and letter templates, shared with `print.html`, the renderer's print page | API |
 
 Boundaries:
 

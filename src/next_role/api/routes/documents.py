@@ -18,6 +18,8 @@ from next_role.documents.api_schemas import (
     ConfirmClaimIn,
     DismissIn,
     EditIn,
+    PreviewIn,
+    PreviewOut,
     RegenerateIn,
     ReviewDocumentsOut,
     RevisionOut,
@@ -221,3 +223,11 @@ def download(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.post("/bundles/{bundle_id}/preview")
+def preview(
+    bundle_id: uuid.UUID, payload: PreviewIn, session: Session = Depends(get_session)
+) -> PreviewOut:
+    """Lay out unsaved edits or a style as the files would show them. Nothing is stored."""
+    return queries.preview(session, bundle_id, payload.kind, payload.content, payload.settings)

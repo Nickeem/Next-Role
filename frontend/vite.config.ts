@@ -11,7 +11,12 @@ export default defineConfig({
   server: {
     proxy: { "/api": process.env.VITE_API_URL ?? "http://localhost:8000" },
   },
-  build: { outDir: "dist", sourcemap: false },
+  build: {
+    outDir: "dist",
+    sourcemap: false,
+    // print.html is the renderer's print page (ADR 0007); it shares the template components.
+    rollupOptions: { input: { main: "index.html", print: "print.html" } },
+  },
   test: {
     environment: "jsdom",
     globals: true,
