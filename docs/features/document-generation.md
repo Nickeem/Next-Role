@@ -26,14 +26,14 @@ the template, and finally approves the exact revisions and files.
 | --- | --- | --- |
 | Phase 2 authorization event and adapter | The `approve_for_drafting` row in `review_events` is the authorization. `apply_decision` inserts the generation run in the same transaction. | No event bus exists. The outbox pattern (ADR 0004) already writes side effects in the decision's transaction. |
 | `job_version` / snapshot checksum | The approval event's `assessment_id`, which must equal the review's `latest_assessment_id` when the run starts | Opportunities and requirements are not edited after ingestion. Assessments are immutable and fingerprinted. |
-| "Refuse revocation once drafting starts" (Phase 2 note) | `reopen` is refused while a run is `running`. A queued run is cancelled. After completion, reopening marks the bundle `withdrawn` and invalidates its document approval. | Refusing forever would leave a review stuck in `approved_for_drafting`. |
+| "Refuse revocation once drafting starts" (Phase 2 note) | `reopen` is refused while a run is `running`. A queued run is cancelled. After completion, reopening marks the bundle `withdrawn` and invalidates its document approval. | Refusing forever would leave a review stuck in `approved_for_drafting`. Phase 2 docs now point here. |
 | `ClaimEvidenceLink` table | Claims and their `evidence_ids` live in the revision's canonical JSON. Verification results are stored per revision in `document_verifications`. | Revisions are immutable, so a separate link table would only duplicate them. JSONB is queryable when needed. |
 | Generic job/queue system | `generation_runs` is the generation queue (worker). `document_artifacts` rows in `pending` are the render queue (renderer). Both are claimed with `FOR UPDATE SKIP LOCKED` plus a lease. | Same PostgreSQL pattern as the outbox. No broker. |
 | Protected print route on the API | The renderer loads a bundled `print.html` entry, built from the same React template components as the preview, from local files. It injects the document JSON, and every network request is blocked. | No browser-to-API credential or network path, and nothing for SSRF to reach. |
 | Ownership checks per user | Every document route is scoped by candidate and requires operator authentication (API key or session plus CSRF) | There is one operator and no per-user accounts (ADR 0005). |
 | "Verified" facts | Both `self_reported` and `user_verified` facts may be used. A claim that rests on a `self_reported` fact blocks approval until that fact is confirmed. | Maintainer decision (2026-10-22). |
 | LLM always present | With `NEXT_ROLE_LLM_PROVIDER=none`, a deterministic assembler selects and orders facts and uses their text verbatim. The cover letter becomes a partial draft with questions. | Maintainer decision (2026-10-22). The default configuration has no LLM. |
-| Candidate data never sent to an LLM (ADR 0003) | Candidate facts are sent to the configured provider for drafting and semantic checks. An external provider also needs `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true`. | Drafting cannot work without it. Leaving the server stays an explicit opt-in (ADR 0006). |
+| Candidate data never sent to an LLM (ADR 0003) | Candidate facts are sent to the configured provider for drafting and semantic checks. Any provider (local or external) needs `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true`. | Drafting cannot work without it. The provider type does not prove where its endpoint runs, so sending candidate data is always an explicit opt-in (ADR 0006). |
 | Contact details | New validated `contact` on `candidates` (email, phone, links) | The resume header needs them, and the profile has no such fields. |
 
 ## 3. Workflow
@@ -60,8 +60,10 @@ the template, and finally approves the exact revisions and files.
    artifact rows for each document × format (PDF, DOCX) with the default style.
 8. The **renderer** claims artifact rows, renders, runs QA, stores the file with its SHA-256,
    and marks the row `ready` or `failed`.
-9. When every artifact for the current revisions has settled, a `documents.ready` (or
-   `documents.needs_input`) notification is queued in the outbox.
+9. When every artifact for the current revisions has settled, one notification is queued
+   in the outbox: `documents.failed` if any artifact failed permanently; otherwise
+   `documents.needs_input` if questions or blocking issues are open; otherwise
+   `documents.ready`.
 10. The candidate edits, answers questions, regenerates a section, or changes the style.
     Each change creates a new revision or style and new artifacts (§8).
 11. The candidate approves the bundle. The approval binds the exact revisions, style, and
@@ -165,8 +167,9 @@ Checks, in order. Each claim ends as `supported`, `needs_review`, or `unsupporte
    among the cited facts' skills or text.
 4. **Semantic check (LLM only).** A separate call judges whether each rewritten claim is
    entailed by its cited facts. "Entailed" is accepted. "Uncertain" becomes `needs_review`.
-   "Not entailed" becomes `unsupported`. Without an LLM, only checks 2 and 3 apply: verbatim
-   assembled text passes them, and any operator edit that changes wording is `needs_review`.
+   "Not entailed" becomes `unsupported`. Without an LLM, only checks 2 and 3 apply. Verbatim
+   assembled text passes them; text that is not a verbatim fact sentence is `unsupported`,
+   because nothing has established its meaning.
 5. **Cross-document.** The letter cites only facts the snapshot contains, and its protected
    values match the resume's.
 6. **Trust.** A claim whose evidence includes only `self_reported` facts is blocking until
@@ -174,12 +177,22 @@ Checks, in order. Each claim ends as `supported`, `needs_review`, or `unsupporte
    page calls the existing verify endpoint.
 
 At approval time the checks are re-evaluated against the **current** facts. Each cited
-fact's content hash must still equal the snapshot's, and its status must be `user_verified`.
-Editing a fact after generation therefore blocks approval until the section is regenerated
-or edited. This reuses Phase 1's rule that editing a fact clears its confirmation.
+fact must still be active (not retired), its content hash must still equal the snapshot's,
+and its status must be `user_verified`. Editing or retiring a fact after generation therefore
+blocks approval until the section is regenerated or edited. This reuses Phase 1's rule that
+editing a fact clears its confirmation.
 
-`unsupported` claims and blocking issues prevent approval. `needs_review` claims must be
-acknowledged by the operator. Each acknowledgement is recorded on the verification.
+`unsupported` and `needs_review` claims, and blocking issues, all prevent approval. There is
+no bare acknowledgement. The operator resolves a claim in one of three ways:
+
+- edit or remove it (a new revision, verified again);
+- regenerate the section;
+- **confirm it as a fact**: the claim's text becomes a new `user_verified` candidate fact
+  with a `user_statement` evidence source, and a system revision adds that fact to the
+  claim's `evidence_ids`. The claim is then supported verbatim by a confirmed fact, and the
+  candidate's attestation is recorded with provenance like any other fact.
+
+This applies equally to drafted and operator-edited text, with or without an LLM.
 
 **Clarification answers.** An answer that is a career fact (for example "Did Project X have
 a measurable result?") is proposed as a new `candidate_fact` with an evidence source of kind
@@ -199,7 +212,7 @@ Each lifecycle is a pure transition table, like `review/workflow.py`.
 | Lifecycle | States |
 | --- | --- |
 | Generation run | `queued` → `running` → `completed` / `failed` / `cancelled` |
-| Revision verification | `pending` → `passed` / `needs_review` / `blocked` |
+| Revision verification | `pending` → `passed` / `blocked` (with per-claim `supported` / `needs_review` / `unsupported`) |
 | Bundle | `drafting` → `needs_clarification` / `ready_for_review` → `approved`; also `withdrawn` (review reopened) and `superseded` (a later bundle replaced it) |
 | Artifact | `pending` → `rendering` → `ready` / `failed`; `superseded` when a newer revision or style replaces it |
 
@@ -235,8 +248,7 @@ artifact hashes the operator saw. The server locks the bundle and checks:
 
 - the version and every ID and hash still match current;
 - all four artifacts (2 documents × 2 formats) are `ready`, and their QA passed;
-- verification has no `unsupported` claims or blocking issues, and every `needs_review` claim
-  is acknowledged;
+- verification passed: every claim is `supported` and there are no blocking issues;
 - no material clarification is open;
 - the trust and freshness rules in §6 hold;
 - the review is still `approved_for_drafting` for the same authorization event.
@@ -289,7 +301,7 @@ All routes are under `/api/v1` and require authentication.
 | `POST /bundles/{id}/regenerations` | Regenerate a section (client idempotency key) |
 | `POST /bundles/{id}/style` | New style; queues renders |
 | `POST /clarifications/{id}/answer` · `/dismiss` | Answer or dismiss a question |
-| `POST /verifications/{id}/acknowledgements` | Acknowledge `needs_review` claims |
+| `POST /bundles/{id}/claims/{claim_id}/confirm-as-fact` | Record a claim as a confirmed fact and re-cite it |
 | `POST /bundles/{id}/approval` | Approve exact revisions, style, and hashes |
 | `GET /artifacts/{id}/download` | Stream a file after checking its hash; `Content-Disposition: attachment`, `nosniff` |
 | `GET /templates` | Template registry (IDs, versions, controls) |
@@ -310,7 +322,7 @@ notification preferences. Delivery failures never change document state.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA` | `false` | Required to send candidate facts to an external provider |
+| `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA` | `false` | Required to send candidate facts to any LLM provider |
 | `NEXT_ROLE_ARTIFACT_DIR` | `/var/lib/next-role/artifacts` | Artifact storage root (Compose volume) |
 | `NEXT_ROLE_GENERATION_MAX_ATTEMPTS` | `3` | Attempts per run |
 | `NEXT_ROLE_GENERATION_LEASE_SECONDS` | `600` | Run lease |
@@ -341,6 +353,9 @@ The cross-cutting scenarios of the proposed plan (§12 there) are the acceptance
 - [ ] A repeated approval request creates one run and one bundle.
 - [ ] Matching facts are emphasized and cited. An invented metric or certification is
       blocking.
+- [ ] Retiring or editing a cited fact after generation blocks approval.
+- [ ] Without an LLM, an operator edit that is not grounded verbatim in a fact blocks
+      approval until it is changed or confirmed as a fact.
 - [ ] Missing material evidence yields a partial draft, questions, and both formats.
 - [ ] An answered question is stored with provenance, and the new revision is verified and
       rendered.

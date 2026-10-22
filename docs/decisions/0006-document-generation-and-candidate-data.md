@@ -27,7 +27,10 @@ under that rule. The default configuration has no LLM at all (`NEXT_ROLE_LLM_PRO
 - **Deterministic verification first.** Protected values, numbers with units, evidence IDs,
   and canonical skills are checked by code against the run's immutable input snapshot. An
   optional LLM entailment check can only downgrade a claim (to `needs_review` or
-  `unsupported`), never upgrade one.
+  `unsupported`), never upgrade one. Only `supported` claims can be approved. A claim that
+  checks cannot establish (including operator edits without an LLM) is resolved by editing
+  it or by confirming its text as a new candidate fact, never by a bare acknowledgement.
+  Cited facts must still be active, unchanged, and confirmed at approval.
 - **Fact trust.** Drafts may use `self_reported` and `user_verified` facts. A claim that
   rests only on `self_reported` facts blocks document approval until those facts are
   confirmed. At approval, cited facts must still have the content hash recorded in the
@@ -36,10 +39,11 @@ under that rule. The default configuration has no LLM at all (`NEXT_ROLE_LLM_PRO
   fact text verbatim, and the cover letter is a partial draft with questions. The same
   verification and rendering apply.
 - **Candidate data and providers.** Drafting sends selected candidate facts, the job
-  description, and requirements to the configured provider. A self-hosted provider (Ollama)
-  needs no further flag. An external provider needs `NEXT_ROLE_LLM_ALLOW_EXTERNAL=true` (as
-  today) **and** `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true`. Without both, generation uses the
-  no-LLM mode and records why. Contact details are never sent: the header is filled in by
+  description, and requirements to the configured provider. Every provider needs
+  `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true`, including Ollama: the provider type does not
+  prove that its `NEXT_ROLE_LLM_BASE_URL` is self-hosted. External providers still also need
+  `NEXT_ROLE_LLM_ALLOW_EXTERNAL=true`. Without the flags, generation uses the no-LLM mode and
+  records why. Contact details are never sent: the header is filled in by
   code.
 - **Missing evidence** becomes a clarification request. The draft omits the claim. Answers
   that are career facts become proposed facts, which need explicit confirmation.
@@ -60,7 +64,7 @@ replaced by the provider rules above.
 
 ## Consequences
 
-- Candidate data can now leave the server, but only with two explicit flags. The README and
+- Candidate data can now reach an LLM, but only with an explicit flag (two for external providers). The README and
   `.env.example` must say so.
 - Every revision stores the prompt and policy versions it was produced with. Outputs are
   reproducible in inputs, not bit for bit.

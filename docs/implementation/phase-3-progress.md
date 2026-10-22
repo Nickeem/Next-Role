@@ -68,3 +68,11 @@ Facts confirmed in code:
   PR 5.
 - The deterministic checks cannot detect a claim that strengthens meaning without changing
   values. Only the optional LLM check and the operator's review catch that.
+
+## Review follow-up
+
+- PR 1 (#10): the candidate-data flag is required for every provider, including Ollama;
+  operator edits that checks cannot establish block approval and are resolved by editing or
+  confirming the text as a fact (no bare acknowledgement); cited facts must be active at
+  approval; a permanently failed artifact queues `documents.failed`, not `ready`; the Phase 2
+  docs and ADR 0004 now point to the narrowed revocation rule.
