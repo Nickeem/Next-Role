@@ -35,6 +35,14 @@ from next_role.documents.workflow import (
     RunIntent,
 )
 from next_role.integrations.llm.base import LLMError, LLMProvider
+from next_role.notifications import service as notifications
+from next_role.notifications.models import NotificationEventType
+
+
+def review_service_path(review_id: uuid.UUID) -> str:
+    """App link to a review (same as review.service.review_path, which imports this module)."""
+    return f"/reviews/{review_id}"
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +117,14 @@ def _fail(
         with ctx.factory.begin() as session:
             run = runs.hold(session, run_id, token)
             retrying = runs.fail(run, ctx.now(), error, ctx.retry, retryable)
+            if not retrying:
+                notifications.enqueue(
+                    session,
+                    NotificationEventType.DOCUMENTS_FAILED,
+                    event_key=f"documents.failed:run:{run.id}",
+                    click_path=review_service_path(run.review_id),
+                    review_id=run.review_id,
+                )
     except runs.LeaseLostError:
         return
     logger.warning(

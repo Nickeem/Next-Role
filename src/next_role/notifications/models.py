@@ -20,6 +20,18 @@ class NotificationEventType(StrEnum):
     REVIEW_READY = "review.ready"
     REVIEW_POSTPONED_DUE = "review.postponed_due"
     INTEGRATION_TEST = "integration.test"
+    DOCUMENTS_READY = "documents.ready"
+    DOCUMENTS_NEEDS_INPUT = "documents.needs_input"
+    DOCUMENTS_FAILED = "documents.failed"
+
+
+DOCUMENT_EVENTS = frozenset(
+    {
+        NotificationEventType.DOCUMENTS_READY,
+        NotificationEventType.DOCUMENTS_NEEDS_INPUT,
+        NotificationEventType.DOCUMENTS_FAILED,
+    }
+)
 
 
 class OutboxStatus(StrEnum):
@@ -77,3 +89,5 @@ class NotificationPreferences(TimestampMixin, Base):
     operator_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     review_ready: Mapped[bool] = mapped_column(Boolean, default=True)
     review_postponed_due: Mapped[bool] = mapped_column(Boolean, default=True)
+    # All document events: ready, needs input, failed.
+    documents: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")

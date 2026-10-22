@@ -33,9 +33,10 @@ HTTP client ──► FastAPI routes (api/) ──► domain services ──► 
 | `jobs/` | Manual ingestion, normalization, deduplication, requirement extraction | db, skills, integrations (via protocol) |
 | `matching/` | Pure matching engine, assessment persistence, and retrieval | candidates, jobs, review |
 | `review/` | Candidate decisions: pure state machine (`workflow.py`), reviews, append-only events | matching, notifications |
-| `documents/` | Phase 3 (in progress): runs queued on approval and claimed with a lease (`runs.py`), input snapshots, fact selection and drafting with an optional LLM (`drafting.py`), pure claim checks (`verification.py`), bundle edits, questions and confirmations (`service.py`), the worker executor (`generation.py`), template registry, artifact storage | candidates, jobs, matching, review, integrations (via protocol) |
+| `documents/` | Phase 3 (in progress): display model shared by every renderer (`display.py`), DOCX renderer and file QA (`docx_renderer.py`, `qa.py`), artifact queue, completion and notifications (`artifacts.py`), approval of exact files (`service.approve`); runs queued on approval and claimed with a lease (`runs.py`), input snapshots, fact selection and drafting with an optional LLM (`drafting.py`), pure claim checks (`verification.py`), bundle edits, questions and confirmations (`service.py`), the worker executor (`generation.py`), template registry, artifact storage | candidates, jobs, matching, review, integrations (via protocol) |
 | `notifications/` | Transactional outbox, preferences, `NotificationPublisher` protocol, dispatcher with retries | db |
 | `integrations/ntfy.py` | ntfy HTTP publisher (httpx) | config, notifications |
+| `renderer.py` | `python -m next_role.renderer`: claims pending files with a lease, renders DOCX (and PDF where Playwright is installed), checks them, stores them atomically, sweeps orphans | documents |
 | `worker.py` | `python -m next_role.worker`: postponed-review reminders and outbox dispatch | review, notifications, integrations |
 | `integrations/llm/` | `LLMProvider` protocol, Ollama and OpenAI-compatible HTTP adapters | config, httpx |
 | `auth/` | Operator browser sessions: login, lookup, logout, login throttle | db |

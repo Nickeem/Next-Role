@@ -308,7 +308,8 @@ All routes are under `/api/v1` and require authentication.
 | `POST /clarifications/{id}/answer` · `/dismiss` | Answer or dismiss a question |
 | `POST /bundles/{id}/claims/{claim_id}/confirm-as-fact` | Record a claim as a confirmed fact and re-cite it |
 | `POST /bundles/{id}/approval` | Approve exact revisions, style, and hashes |
-| `GET /artifacts/{id}/download` | Stream a file after checking its hash; `Content-Disposition: attachment`, `nosniff` |
+| `GET /artifacts/{id}/download` | A `ready` file after checking its hash; `Content-Disposition: attachment`, `nosniff`, `no-store`. Superseded files are kept for history but are not downloadable as current. |
+| `POST /artifacts/{id}/retry` | Queue a failed file again |
 | `GET /templates` | Template registry (IDs, versions, controls) |
 
 ## 12. Notifications
@@ -320,8 +321,8 @@ All routes are under `/api/v1` and require authentication.
 | `documents.failed` | A run or render failed permanently | "Document generation needs attention." |
 
 The messages carry no personal data, link to the bundle page (login required), are queued
-once per bundle and event (deterministic `event_key`), and can be switched off in
-notification preferences. Delivery failures never change document state.
+once per bundle and event (deterministic `event_key`), and can be switched off with the
+`documents` notification preference (one switch for all three). Delivery failures never change document state.
 
 ## 13. Configuration
 
