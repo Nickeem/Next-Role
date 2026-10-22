@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
 
 from next_role.documents import runs as document_runs
-from next_role.documents.artifacts import bundle_from_key
+from next_role.documents.artifacts import approval_from_key, bundle_from_key
 from next_role.documents.models import DocumentBundle
 from next_role.documents.workflow import BundleStatus
 from next_role.errors import ConflictError, NotFoundError
@@ -122,6 +122,17 @@ def notification_still_relevant(session: Session, row: NotificationOutbox) -> bo
     same date; a document notification only while its bundle is not withdrawn. Other
     notifications always apply."""
     if row.event_type in DOCUMENT_EVENTS:
+        approval_id = approval_from_key(row.event_key)
+        if approval_id is not None:
+            # A first draft failed: still relevant while that approval is the current one.
+            review = session.get(OpportunityReview, row.review_id) if row.review_id else None
+            latest = document_runs.latest_approval(session, review.id) if review else None
+            return (
+                review is not None
+                and review.status is ReviewStatus.APPROVED_FOR_DRAFTING
+                and latest is not None
+                and latest.id == approval_id
+            )
         bundle_id = bundle_from_key(row.event_key)
         bundle = session.get(DocumentBundle, bundle_id) if bundle_id else None
         return bundle is None or bundle.status is not BundleStatus.WITHDRAWN

@@ -14,7 +14,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Protocol
 
-_KEY = re.compile(r"^[0-9a-f-]{36}/[0-9a-f-]{36}\.(pdf|docx)$")
+# <bundle id>/<artifact id>-<attempt>.<ext>
+_KEY = re.compile(r"^[0-9a-f-]{36}/[0-9a-f-]{36}-\d{1,3}\.(pdf|docx)$")
 
 
 class ArtifactStore(Protocol):
@@ -67,6 +68,12 @@ class LocalArtifactStore:
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
+        # Make the rename itself durable before a database row can point at the file.
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
         return sha256(data)
 
     def get(self, key: str) -> bytes:

@@ -118,11 +118,22 @@ def _fail(
             run = runs.hold(session, run_id, token)
             retrying = runs.fail(run, ctx.now(), error, ctx.retry, retryable)
             if not retrying:
+                # Once per bundle (the same key as failed files); a first draft that failed
+                # before its bundle existed is reported once per approval.
+                key = (
+                    f"documents.failed:{run.bundle_id}"
+                    if run.bundle_id
+                    else f"documents.failed:approval:{run.authorization_event_id}"
+                )
                 notifications.enqueue(
                     session,
                     NotificationEventType.DOCUMENTS_FAILED,
-                    event_key=f"documents.failed:run:{run.id}",
-                    click_path=review_service_path(run.review_id),
+                    event_key=key,
+                    click_path=(
+                        f"/documents/{run.bundle_id}"
+                        if run.bundle_id
+                        else review_service_path(run.review_id)
+                    ),
                     review_id=run.review_id,
                 )
     except runs.LeaseLostError:
@@ -297,7 +308,9 @@ def _regenerate(ctx: GenerationContext, run_id: uuid.UUID, token: uuid.UUID) -> 
         verdicts = service.known_verdicts(session, bundle.id)
         bundle_id = bundle.id
 
-    draft = drafting.draft(snapshot, statements, _today(ctx), ctx.provider, ctx.no_llm_reason)
+    draft = drafting.draft(
+        snapshot, statements, _today(ctx), ctx.provider, ctx.no_llm_reason, frozenset({kind})
+    )
     ctx.progress()
     fresh: Document = draft.resume if kind is DocumentKind.RESUME else draft.letter
     document = service.replace_section(base, fresh, section)

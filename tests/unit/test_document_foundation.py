@@ -85,6 +85,10 @@ def test_resume_round_trips_and_claims_are_listed_in_order() -> None:
         lambda d: d["sections"][0]["items"][0].update(start_date="2020-13"),
         # two sections of one type
         lambda d: d["sections"].append({**d["sections"][1], "id": "skills-2"}),
+        # 36 characters but not a UUID
+        lambda d: d["sections"][1]["skills"][0].update(evidence_ids=["-" * 36]),
+        # a resume with nothing in it
+        lambda d: d.update(sections=[]),
     ],
 )
 def test_invalid_resumes_are_rejected(mutate: Any) -> None:
@@ -139,7 +143,7 @@ def test_page_sizes() -> None:
 
 def test_local_store_writes_atomically_and_checks_hashes(tmp_path: Path) -> None:
     store = LocalArtifactStore(tmp_path)
-    key = f"{uuid.uuid4()}/{uuid.uuid4()}.pdf"
+    key = f"{uuid.uuid4()}/{uuid.uuid4()}-1.pdf"
     digest = store.put(key, b"%PDF-1.7 data")
     assert read_verified(store, key, digest) == b"%PDF-1.7 data"
     assert store.keys() == [key]
@@ -154,7 +158,15 @@ def test_local_store_writes_atomically_and_checks_hashes(tmp_path: Path) -> None
         store.get(key)
 
 
-@pytest.mark.parametrize("key", ["../x.pdf", "a/b.pdf", f"{uuid.uuid4()}/{uuid.uuid4()}.html"])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "../x.pdf",
+        "a/b-1.pdf",
+        f"{uuid.uuid4()}/{uuid.uuid4()}-1.html",
+        f"{uuid.uuid4()}/{uuid.uuid4()}.pdf",
+    ],
+)
 def test_local_store_rejects_bad_keys(tmp_path: Path, key: str) -> None:
     with pytest.raises(StorageError):
         LocalArtifactStore(tmp_path).put(key, b"x")
