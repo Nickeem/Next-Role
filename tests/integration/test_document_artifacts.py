@@ -287,7 +287,7 @@ def test_files_that_fail_qa_are_never_marked_ready(
 def test_orphaned_files_are_swept(
     session_factory: sessionmaker[Session], store: LocalArtifactStore
 ) -> None:
-    key = f"{uuid.uuid4()}/{uuid.uuid4()}.pdf"
+    key = f"{uuid.uuid4()}/{uuid.uuid4()}-1.pdf"
     store.put(key, b"%PDF orphan")
     with session_factory() as session:
         assert artifacts.sweep_orphans(session, store, datetime.now(UTC)) == 0  # too recent
@@ -427,4 +427,96 @@ def test_failed_initial_runs_notify(
     _drain(_ctx(session_factory))
     [(event, key)] = _outbox(session_factory)
     assert event == NotificationEventType.DOCUMENTS_FAILED.value
-    assert key.startswith("documents.failed:run:")
+    assert key.startswith("documents.failed:approval:")
+
+
+def test_a_late_attempt_never_deletes_the_file_a_newer_attempt_published(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+    store: LocalArtifactStore,
+    drafted: dict[str, Any],
+) -> None:
+    ctx = _rctx(session_factory, store)
+    ctx.renderers.pop(ArtifactFormat.PDF)
+    later = renderer.RenderContext(
+        **{**ctx.__dict__, "now": lambda: datetime.now(UTC) + timedelta(minutes=10)}
+    )
+
+    class Slow(renderer.DocxRenderer):
+        def render(self, document: Any, tokens: dict[str, Any]) -> bytes:
+            # While this attempt is still rendering, its lease expires and another renderer
+            # takes the file over and publishes it.
+            self_ctx = renderer.RenderContext(
+                **{**later.__dict__, "renderers": {ArtifactFormat.DOCX: renderer.DocxRenderer()}}
+            )
+            assert renderer.render_next(self_ctx)
+            return super().render(document, tokens)
+
+    # Only one DOCX is due, so the takeover is of the very file being rendered.
+    with session_factory.begin() as s:
+        rows = s.scalars(
+            select(DocumentArtifact).where(DocumentArtifact.format == ArtifactFormat.DOCX)
+        ).all()
+        rows[1].next_attempt_at = datetime.now(UTC) + timedelta(days=1)
+    slow = renderer.RenderContext(**{**ctx.__dict__, "renderers": {ArtifactFormat.DOCX: Slow()}})
+    assert renderer.render_next(slow)
+    detail = _bundle(client, {"id": drafted["review_id"]})
+    ready = [a for a in detail["artifacts"] if a["status"] == "ready"]
+    assert len(ready) == 1
+    response = client.get(f"/api/v1/artifacts/{ready[0]['id']}/download")
+    assert response.status_code == 200  # the newer file survived the late attempt
+
+
+def test_a_damaged_ready_file_can_be_rendered_again(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+    store: LocalArtifactStore,
+    drafted: dict[str, Any],
+) -> None:
+    _render_all(_rctx(session_factory, store))
+    docx = next(
+        a
+        for a in _bundle(client, {"id": drafted["review_id"]})["artifacts"]
+        if a["format"] == "docx"
+    )
+    assert client.post(f"/api/v1/artifacts/{docx['id']}/retry").status_code == 409  # intact
+    for key in list(store.keys()):
+        if docx["id"] in key:
+            store.delete(key)
+    assert client.post(f"/api/v1/artifacts/{docx['id']}/retry").status_code == 202
+    assert _render_all(_rctx(session_factory, store)) == 1
+    assert client.get(f"/api/v1/artifacts/{docx['id']}/download").status_code == 200
+
+
+def test_generation_failures_notify_once_per_bundle(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+    drafted: dict[str, Any],
+) -> None:
+    from next_role.documents import generation
+
+    class Broken:
+        name = "broken"
+        external = False
+
+        def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> str:
+            raise RuntimeError("boom")
+
+    for n in range(2):
+        detail = _bundle(client, {"id": drafted["review_id"]})
+        client.post(
+            f"/api/v1/bundles/{drafted['id']}/regenerations",
+            json={
+                "kind": "resume",
+                "section": "skills",
+                "expected_version": detail["version"],
+                "idempotency_key": f"key-0000000{n}",
+            },
+        )
+        ctx = _ctx(session_factory, Broken())  # type: ignore[arg-type]
+        for attempt in range(3):
+            later = generation.GenerationContext(
+                **{**ctx.__dict__, "now": lambda a=attempt: datetime.now(UTC) + timedelta(hours=a)}
+            )
+            _drain(later)
+    assert _outbox(session_factory) == [("documents.failed", f"documents.failed:{drafted['id']}")]

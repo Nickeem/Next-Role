@@ -14,7 +14,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Protocol
 
-_KEY = re.compile(r"^[0-9a-f-]{36}/[0-9a-f-]{36}\.(pdf|docx)$")
+# <bundle id>/<artifact id>-<attempt>.<ext>
+_KEY = re.compile(r"^[0-9a-f-]{36}/[0-9a-f-]{36}-\d{1,3}\.(pdf|docx)$")
 
 
 class ArtifactStore(Protocol):

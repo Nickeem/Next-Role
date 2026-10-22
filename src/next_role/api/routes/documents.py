@@ -185,8 +185,14 @@ def approve(
 
 
 @router.post("/artifacts/{artifact_id}/retry", status_code=status.HTTP_202_ACCEPTED)
-def retry_artifact(artifact_id: uuid.UUID, session: Session = Depends(get_session)) -> ArtifactOut:
-    return ArtifactOut.model_validate(artifacts.retry(session, artifact_id, datetime.now(UTC)))
+def retry_artifact(
+    artifact_id: uuid.UUID, request: Request, session: Session = Depends(get_session)
+) -> ArtifactOut:
+    """Render a failed or damaged file again."""
+    store: ArtifactStore = request.app.state.artifact_store
+    return ArtifactOut.model_validate(
+        artifacts.retry(session, artifact_id, datetime.now(UTC), store)
+    )
 
 
 @router.get(
