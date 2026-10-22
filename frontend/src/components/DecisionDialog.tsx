@@ -6,10 +6,12 @@ import type { DecisionInput, ReviewAction, Tier } from "../types";
 
 const EXPLANATION: Partial<Record<ReviewAction, string>> = {
   approve_for_drafting:
-    "This records your approval for a later phase to draft a resume and cover letter. " +
-    "No documents are generated and nothing is sent to the employer.",
+    "A tailored resume and cover letter are drafted from your confirmed facts for you to " +
+    "review. Nothing is sent to the employer, and you approve the documents separately.",
   reject: "Rejected roles are hidden from the queue but kept in your history. You can reopen them.",
-  reopen: "The review returns to your queue. If it was approved, the approval is revoked.",
+  reopen:
+    "The review returns to your queue. If it was approved, the approval is revoked and any " +
+    "drafted documents are withdrawn (kept for your records).",
   postpone: "You will be reminded when the date arrives, if reminders are enabled.",
 };
 

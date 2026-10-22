@@ -13,7 +13,7 @@ another session can resume the work without repeating it. The specification is
 | 3 | `feat/document-drafting` | M2 | Evidence selection, deterministic assembler, LLM drafter, verification checks 1–6, clarifications, section regeneration, `verify` runs in the worker | PR open |
 | 4 | `feat/document-docx` | M3 | Renderer process and artifact lifecycle, style revisions, DOCX renderer, DOCX QA, download route, approval, `documents.*` notifications | PR open |
 | 5 | `feat/document-pdf` | M3 | Templates (`clean`, `modern-deedy`, `modern`), `print.html`, Playwright PDF renderer, PDF QA, `renderer` Dockerfile target and Compose service, license review | PR open |
-| 6 | `feat/document-workspace` | M4 | Bundle page: preview, structured editor, style controls, evidence and issues, clarifications, regenerate, history, downloads, approval | not started |
+| 6 | `feat/document-workspace` | M4 | Bundle page: preview, structured editor, style controls, evidence and issues, clarifications, regenerate, history, downloads, approval | PR open |
 | 7 | `chore/phase-3-hardening` | M5 | Restart and failure tests, security and accessibility passes, resource limits, runbook, release checklist | not started |
 
 Each PR is based on the previous one until it merges. DOCX comes before PDF so that the
@@ -137,9 +137,25 @@ Facts confirmed in code:
   26.04), so Chromium runs only in the pinned image. QA compares text with whitespace
   removed, because Chromium may split a very long word across lines.
 
+- PR 6: 35 frontend tests pass (+8: documents page shows preview, blockers and how to
+  resolve them; confirming a fact re-checks; required questions need a reason to dismiss;
+  edits carry the bundle version and a 409 reloads; approval sends exact revision, style and
+  file hashes; withdrawn bundles are read-only; design changes preview before applying; an
+  approved review links to its documents). Python suite unchanged (330 passed).
+- PR 6 manual check on the Compose stack with the rebuilt API image: signed in, opened the
+  review, followed the Documents link, viewed checks, questions, files and design, opened the
+  editor and the cover letter, at 1440 px and 390 px. No console errors and no horizontal
+  overflow. Fixed from screenshots: a lowercased "Add bullet" label, a repeated drafting
+  notice, and a file row wrapping its download button.
+- PR 6 notes: the preview of unsaved edits, unapplied designs and older versions comes from
+  `POST /bundles/{id}/preview`, so it always matches the files. The page polls every 3 s
+  only while drafting, checks or rendering are in progress. Approving for drafting now
+  explains that drafting starts; reopening explains that drafts are withdrawn.
+
 ## Known limitations / open issues
 
 - The renderer image is large (about 3.8 GB, mostly Chromium and its dependencies).
+- The workspace has no drag-and-drop; bullets are reordered with up and down buttons.
 - Achievements without a parent job or project are not placed on the resume yet.
 - The deterministic checks cannot detect a claim that strengthens meaning without changing
   values. Only the optional LLM check and the operator's review catch that.

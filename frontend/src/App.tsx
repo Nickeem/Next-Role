@@ -7,6 +7,7 @@ import { CandidateProvider } from "./candidates";
 import { Empty, ErrorState, Loading } from "./components/States";
 import { Activity } from "./pages/Activity";
 import { Decisions } from "./pages/Decisions";
+import { Documents } from "./pages/Documents";
 import { Login } from "./pages/Login";
 import { ReviewDetail } from "./pages/ReviewDetail";
 import { ReviewQueue } from "./pages/ReviewQueue";
@@ -57,6 +58,7 @@ function Workspace({ onLogout }: { onLogout: () => Promise<void> }) {
         <Routes>
           <Route path="/" element={<ReviewQueue />} />
           <Route path="/reviews/:id" element={<ReviewDetail />} />
+          <Route path="/documents/:id" element={<Documents />} />
           <Route path="/decisions" element={<Decisions />} />
           <Route path="/activity" element={<Activity />} />
           <Route path="/settings" element={<Settings onLogout={onLogout} />} />
