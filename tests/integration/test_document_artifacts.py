@@ -517,6 +517,31 @@ def test_a_damaged_ready_file_can_be_rendered_again(
     assert client.get(f"/api/v1/artifacts/{docx['id']}/download").status_code == 200
 
 
+def test_rendering_an_approved_file_again_returns_the_bundle_to_review(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+    store: LocalArtifactStore,
+    drafted: dict[str, Any],
+    review: dict[str, Any],
+) -> None:
+    url = f"/api/v1/bundles/{drafted['id']}/approval"
+    detail = _make_approvable(client, session_factory, store, drafted, review["candidate_id"])
+    assert client.post(url, json=_approval(detail)).status_code == 201
+    docx = next(a for a in _bundle(client, review)["artifacts"] if a["format"] == "docx")
+    for key in list(store.keys()):
+        if docx["id"] in key:
+            store.delete(key)
+    assert client.post(f"/api/v1/artifacts/{docx['id']}/retry").status_code == 202
+
+    detail = _bundle(client, review)
+    assert (detail["status"], detail["approval_current"]) == ("ready_for_review", False)
+    assert _render_all(_rctx(session_factory, store)) == 1
+    name = client.get(f"/api/v1/artifacts/{docx['id']}/download").headers["content-disposition"]
+    assert "DRAFT" in name
+    detail = _bundle(client, review)
+    assert client.post(url, json=_approval(detail)).status_code == 201  # approvable again
+
+
 def test_generation_failures_notify_once_per_bundle(
     client: TestClient,
     session_factory: sessionmaker[Session],

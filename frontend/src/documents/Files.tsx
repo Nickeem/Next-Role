@@ -16,11 +16,28 @@ function size(bytes: number | null): string {
 function ApproveDialog({ onConfirm, onClose }: { onConfirm: () => Promise<boolean>; onClose: () => void }) {
   const titleId = useId();
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     confirmRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key !== "Tab" || !dialogRef.current) return;
+      // Keep keyboard focus inside the modal.
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>("button:not([disabled])");
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
@@ -29,7 +46,7 @@ function ApproveDialog({ onConfirm, onClose }: { onConfirm: () => Promise<boolea
   }, [onClose]);
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <div ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <h2 id={titleId} className="dialog__title">
           Approve these documents?
         </h2>
@@ -38,7 +55,7 @@ function ApproveDialog({ onConfirm, onClose }: { onConfirm: () => Promise<boolea
           new approval. Approving does not apply to the job or send anything to the employer.
         </p>
         <div className="dialog__actions">
-          <button type="button" className="btn btn--secondary" onClick={onClose}>
+          <button ref={cancelRef} type="button" className="btn btn--secondary" onClick={onClose}>
             Cancel
           </button>
           <button
@@ -48,6 +65,8 @@ function ApproveDialog({ onConfirm, onClose }: { onConfirm: () => Promise<boolea
             disabled={submitting}
             onClick={async () => {
               setSubmitting(true);
+              // The confirm button is disabled while submitting; keep focus in the dialog.
+              cancelRef.current?.focus();
               if (!(await onConfirm())) setSubmitting(false);
             }}
           >
