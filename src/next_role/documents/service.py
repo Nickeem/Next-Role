@@ -23,10 +23,12 @@ from next_role.candidates.models import (
     FactType,
     VerificationStatus,
 )
-from next_role.documents import templates
+from next_role.documents import artifacts, runs, templates
 from next_role.documents.drafting import Question, connective_templates
 from next_role.documents.models import (
     ClarificationRequest,
+    DocumentApproval,
+    DocumentArtifact,
     DocumentBundle,
     DocumentKind,
     DocumentRevision,
@@ -53,8 +55,11 @@ from next_role.documents.verification import (
     Context,
     Verdict,
     VerificationResult,
+    stale_evidence,
+    verify,
 )
 from next_role.documents.workflow import (
+    ArtifactStatus,
     BundleStatus,
     ClarificationStatus,
     RunIntent,
@@ -64,6 +69,8 @@ from next_role.documents.workflow import (
     ensure_open,
 )
 from next_role.errors import ConflictError, InvalidInputError, NotFoundError
+from next_role.review.models import OpportunityReview
+from next_role.review.workflow import ReviewStatus
 from next_role.skills import normalize_skill
 
 logger = logging.getLogger(__name__)
@@ -329,6 +336,7 @@ def refresh_status(
     ):
         bundle.status = status
     bundle.version += 1
+    artifacts.sync(session, bundle)
 
 
 def queue_run(
@@ -602,4 +610,150 @@ def replace_section(current: Document, fresh: Document, section: str) -> Documen
         sections.sort(key=lambda s: order.index(s.type) if s.type in order else len(order))
     return current.model_copy(
         update={"header": fresh.header, "target": fresh.target, "sections": sections}
+    )
+
+
+def set_style(
+    session: Session, bundle_id: uuid.UUID, settings: StyleSettings, expected_version: int
+) -> DocumentStyle:
+    """A new look for the bundle: new files are rendered, content and checks are unchanged."""
+    bundle = _open_bundle(session, bundle_id, expected_version)
+    previous = current_style(session, bundle.id)
+    version = templates.template(settings.template_id).version
+    if previous is not None and previous.style_hash == settings.style_hash(version):
+        raise InvalidInputError("Nothing changed")
+    style = add_style(session, bundle, settings)
+    refresh_status(session, bundle)
+    return style
+
+
+def approve(
+    session: Session,
+    bundle_id: uuid.UUID,
+    *,
+    expected_version: int,
+    resume_revision_id: uuid.UUID,
+    cover_letter_revision_id: uuid.UUID,
+    style_id: uuid.UUID,
+    artifact_hashes: Mapping[uuid.UUID, str],
+    request_id: str | None,
+) -> DocumentApproval:
+    """Approve the exact revisions, style and files the operator reviewed (spec §9).
+
+    Every check is repeated here against current data; any mismatch is a 409 that tells the
+    operator what to resolve. Approval never covers content the operator did not see.
+    """
+    bundle = _open_bundle(session, bundle_id, expected_version)
+    if bundle.status is BundleStatus.APPROVED:
+        raise ConflictError("These documents are already approved")
+
+    revisions = current_revisions(session, bundle.id)
+    style = current_style(session, bundle.id)
+    if (
+        DocumentKind.RESUME not in revisions
+        or DocumentKind.COVER_LETTER not in revisions
+        or revisions[DocumentKind.RESUME].id != resume_revision_id
+        or revisions[DocumentKind.COVER_LETTER].id != cover_letter_revision_id
+        or style is None
+        or style.id != style_id
+    ):
+        raise ConflictError("The documents changed since you opened them; reload and review again")
+
+    files = artifacts.current(session, bundle.id)
+    if len(files) != len(DocumentKind) * len(artifacts.FORMATS) or any(
+        f.status is not ArtifactStatus.READY or not (f.qa or {}).get("passed") for f in files
+    ):
+        raise ConflictError("Both the PDF and the DOCX of both documents must be ready first")
+    if {f.id: f.sha256 for f in files} != dict(artifact_hashes):
+        raise ConflictError("The files changed since you opened them; reload and review again")
+
+    open_material = session.scalar(
+        select(func.count())
+        .select_from(ClarificationRequest)
+        .where(
+            ClarificationRequest.bundle_id == bundle.id,
+            ClarificationRequest.status == ClarificationStatus.OPEN,
+            ClarificationRequest.material.is_(True),
+        )
+    )
+    if open_material:
+        raise ConflictError("Answer or dismiss the open required questions first")
+
+    facts = current_facts(session, bundle.candidate_id)
+    statements_by_id = statements(session, bundle.id)
+    verdicts = known_verdicts(session, bundle.id)
+    verifications = []
+    for revision in revisions.values():
+        latest = latest_verification(session, revision.id)
+        if latest is None or latest.status is not VerificationOutcome.PASSED:
+            raise ConflictError("Some claims are not supported yet; resolve them first")
+        if stale_evidence(latest.claims, facts):
+            raise ConflictError(
+                "Facts these documents cite were edited, retired or unconfirmed since they were "
+                "checked; check again"
+            )
+        document = parse_document(revision.content)
+        recheck = verify(
+            document,
+            verification_context(facts, statements_by_id, document.target, True, verdicts),
+        )
+        if recheck.outcome is not VerificationOutcome.PASSED:
+            raise ConflictError("The documents no longer pass their checks; check again")
+        verifications.append(str(latest.id))
+
+    review = session.get(OpportunityReview, bundle.review_id)
+    event = runs.latest_approval(session, bundle.review_id)
+    if (
+        review is None
+        or review.status is not ReviewStatus.APPROVED_FOR_DRAFTING
+        or event is None
+        or event.id != bundle.authorization_event_id
+    ):
+        raise ConflictError("The approval to draft for this job no longer stands")
+
+    kinds = {r.id: r.kind for r in revisions.values()}
+    approval = DocumentApproval(
+        bundle_id=bundle.id,
+        authorization_event_id=bundle.authorization_event_id,
+        resume_revision_id=resume_revision_id,
+        cover_letter_revision_id=cover_letter_revision_id,
+        style_id=style.id,
+        artifacts=[
+            {
+                "id": str(f.id),
+                "kind": kinds[f.revision_id].value,
+                "format": f.format.value,
+                "sha256": f.sha256,
+            }
+            for f in files
+        ],
+        verification_ids=verifications,
+        actor="operator",
+        request_id=request_id,
+    )
+    session.add(approval)
+    bundle.status = BundleStatus.APPROVED
+    bundle.version += 1
+    session.flush()
+    logger.info("documents approved", extra={"bundle_id": str(bundle.id)})
+    return approval
+
+
+def latest_approval(session: Session, bundle_id: uuid.UUID) -> DocumentApproval | None:
+    return session.scalar(
+        select(DocumentApproval)
+        .where(DocumentApproval.bundle_id == bundle_id)
+        .order_by(DocumentApproval.created_at.desc())
+        .limit(1)
+    )
+
+
+def approval_covers(session: Session, artifact: DocumentArtifact) -> bool:
+    """Whether the bundle is approved now and its current approval includes this file."""
+    bundle = session.get(DocumentBundle, artifact.bundle_id)
+    if bundle is None or bundle.status is not BundleStatus.APPROVED:
+        return False
+    approval = latest_approval(session, bundle.id)
+    return approval is not None and any(
+        a["id"] == str(artifact.id) and a["sha256"] == artifact.sha256 for a in approval.artifacts
     )

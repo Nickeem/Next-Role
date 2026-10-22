@@ -143,7 +143,7 @@ def test_page_sizes() -> None:
 
 def test_local_store_writes_atomically_and_checks_hashes(tmp_path: Path) -> None:
     store = LocalArtifactStore(tmp_path)
-    key = f"{uuid.uuid4()}/{uuid.uuid4()}.pdf"
+    key = f"{uuid.uuid4()}/{uuid.uuid4()}-1.pdf"
     digest = store.put(key, b"%PDF-1.7 data")
     assert read_verified(store, key, digest) == b"%PDF-1.7 data"
     assert store.keys() == [key]
@@ -158,7 +158,15 @@ def test_local_store_writes_atomically_and_checks_hashes(tmp_path: Path) -> None
         store.get(key)
 
 
-@pytest.mark.parametrize("key", ["../x.pdf", "a/b.pdf", f"{uuid.uuid4()}/{uuid.uuid4()}.html"])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "../x.pdf",
+        "a/b-1.pdf",
+        f"{uuid.uuid4()}/{uuid.uuid4()}-1.html",
+        f"{uuid.uuid4()}/{uuid.uuid4()}.pdf",
+    ],
+)
 def test_local_store_rejects_bad_keys(tmp_path: Path, key: str) -> None:
     with pytest.raises(StorageError):
         LocalArtifactStore(tmp_path).put(key, b"x")

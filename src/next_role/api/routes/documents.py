@@ -1,13 +1,18 @@
+import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from next_role.api.deps import get_session
-from next_role.documents import queries, service
+from next_role.documents import artifacts, queries, service
 from next_role.documents.api_schemas import (
     AnswerIn,
+    ApprovalIn,
+    ApprovalOut,
+    ArtifactOut,
     BundleDetailOut,
     ClarificationOut,
     ConfirmClaimIn,
@@ -18,10 +23,17 @@ from next_role.documents.api_schemas import (
     RevisionOut,
     RevisionSummaryOut,
     RunOut,
+    StyleIn,
+    StyleOut,
     TemplatesOut,
 )
 from next_role.documents.models import DocumentKind
+from next_role.documents.storage import ArtifactStore, StorageError, read_verified
+from next_role.documents.workflow import ArtifactStatus
+from next_role.errors import ConflictError
+from next_role.logging_config import request_id_var
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["documents"])
 
 _STALE: dict[int | str, dict[str, Any]] = {
@@ -138,3 +150,80 @@ def dismiss(
         session, clarification_id, payload.reason, payload.expected_version
     )
     return ClarificationOut.model_validate(row)
+
+
+@router.post("/bundles/{bundle_id}/style", status_code=status.HTTP_201_CREATED, responses=_STALE)
+def set_style(
+    bundle_id: uuid.UUID, payload: StyleIn, session: Session = Depends(get_session)
+) -> StyleOut:
+    """Change template, page size, density, accent, font or section order. Files are
+    rendered again; the content and its checks do not change."""
+    style = service.set_style(session, bundle_id, payload.settings, payload.expected_version)
+    return queries.style_out(style)
+
+
+@router.post(
+    "/bundles/{bundle_id}/approval",
+    status_code=status.HTTP_201_CREATED,
+    responses={409: {"description": "Something changed or is unresolved; the detail says what"}},
+)
+def approve(
+    bundle_id: uuid.UUID, payload: ApprovalIn, session: Session = Depends(get_session)
+) -> ApprovalOut:
+    """Approve these exact revisions, style and files. This does not apply to any job."""
+    approval = service.approve(
+        session,
+        bundle_id,
+        expected_version=payload.expected_version,
+        resume_revision_id=payload.resume_revision_id,
+        cover_letter_revision_id=payload.cover_letter_revision_id,
+        style_id=payload.style_id,
+        artifact_hashes=payload.artifacts,
+        request_id=request_id_var.get(),
+    )
+    return ApprovalOut.model_validate(approval)
+
+
+@router.post("/artifacts/{artifact_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+def retry_artifact(
+    artifact_id: uuid.UUID, request: Request, session: Session = Depends(get_session)
+) -> ArtifactOut:
+    """Render a failed or damaged file again."""
+    store: ArtifactStore = request.app.state.artifact_store
+    return ArtifactOut.model_validate(
+        artifacts.retry(session, artifact_id, datetime.now(UTC), store)
+    )
+
+
+@router.get(
+    "/artifacts/{artifact_id}/download",
+    response_class=Response,
+    responses={200: {"content": {m: {} for m in artifacts.MEDIA_TYPES.values()}}},
+)
+def download(
+    artifact_id: uuid.UUID, request: Request, session: Session = Depends(get_session)
+) -> Response:
+    """Download a rendered file. Unapproved files are named ``…-DRAFT``."""
+    artifact = artifacts.get(session, artifact_id)
+    if artifact.status is not ArtifactStatus.READY or not artifact.storage_key:
+        raise ConflictError("This file is not ready")
+    if artifact.sha256 is None:  # pragma: no cover - ready rows always have a hash
+        raise ConflictError("This file is not ready")
+    store: ArtifactStore = request.app.state.artifact_store
+    try:
+        data = read_verified(store, artifact.storage_key, artifact.sha256)
+    except StorageError as exc:
+        logger.error(
+            "artifact unreadable", extra={"artifact_id": str(artifact.id), "error": str(exc)}
+        )
+        raise ConflictError("This file is unavailable; render it again") from exc
+    name = artifacts.download_name(session, artifact, service.approval_covers(session, artifact))
+    return Response(
+        content=data,
+        media_type=artifacts.MEDIA_TYPES[artifact.format],
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

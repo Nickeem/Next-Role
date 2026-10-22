@@ -5,8 +5,10 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from next_role.documents import runs, service, templates
+from next_role.documents import artifacts, runs, service, templates
 from next_role.documents.api_schemas import (
+    ApprovalOut,
+    ArtifactOut,
     BundleDetailOut,
     BundleSummaryOut,
     ClarificationOut,
@@ -28,6 +30,7 @@ from next_role.documents.models import (
     GenerationRun,
 )
 from next_role.documents.schemas import StyleSettings
+from next_role.documents.workflow import BundleStatus
 from next_role.jobs.models import JobOpportunity
 
 
@@ -108,6 +111,7 @@ def bundle_detail(session: Session, bundle_id: uuid.UUID) -> BundleDetailOut:
     job = session.get(JobOpportunity, bundle.opportunity_id)
     revisions = service.current_revisions(session, bundle.id)
     style = service.current_style(session, bundle.id)
+    approval = service.latest_approval(session, bundle.id)
     recent = session.scalars(
         select(GenerationRun)
         .where(GenerationRun.bundle_id == bundle.id)
@@ -137,6 +141,9 @@ def bundle_detail(session: Session, bundle_id: uuid.UUID) -> BundleDetailOut:
         ],
         style=style_out(style) if style else None,
         runs=[RunOut.model_validate(r) for r in recent],
+        artifacts=[ArtifactOut.model_validate(a) for a in artifacts.current(session, bundle.id)],
+        approval=ApprovalOut.model_validate(approval) if approval else None,
+        approval_current=bundle.status is BundleStatus.APPROVED,
     )
 
 

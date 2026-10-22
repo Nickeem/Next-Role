@@ -13,10 +13,17 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
 
 from next_role.documents import runs as document_runs
+from next_role.documents.artifacts import approval_from_key, bundle_from_key
+from next_role.documents.models import DocumentBundle
+from next_role.documents.workflow import BundleStatus
 from next_role.errors import ConflictError, NotFoundError
 from next_role.matching.models import SuitabilityAssessment
 from next_role.notifications import service as notifications
-from next_role.notifications.models import NotificationEventType, NotificationOutbox
+from next_role.notifications.models import (
+    DOCUMENT_EVENTS,
+    NotificationEventType,
+    NotificationOutbox,
+)
 from next_role.review import workflow
 from next_role.review.models import OpportunityReview, ReviewEvent
 from next_role.review.schemas import DecisionIn, ReviewEventOut, ReviewOut
@@ -112,7 +119,23 @@ def queue_due_reminders(session: Session, now: datetime, max_age: timedelta) -> 
 
 def notification_still_relevant(session: Session, row: NotificationOutbox) -> bool:
     """A postponed-review reminder applies only while the review is still postponed to the
-    same date. Other notifications always apply."""
+    same date; a document notification only while its bundle is not withdrawn. Other
+    notifications always apply."""
+    if row.event_type in DOCUMENT_EVENTS:
+        approval_id = approval_from_key(row.event_key)
+        if approval_id is not None:
+            # A first draft failed: still relevant while that approval is the current one.
+            review = session.get(OpportunityReview, row.review_id) if row.review_id else None
+            latest = document_runs.latest_approval(session, review.id) if review else None
+            return (
+                review is not None
+                and review.status is ReviewStatus.APPROVED_FOR_DRAFTING
+                and latest is not None
+                and latest.id == approval_id
+            )
+        bundle_id = bundle_from_key(row.event_key)
+        bundle = session.get(DocumentBundle, bundle_id) if bundle_id else None
+        return bundle is None or bundle.status is not BundleStatus.WITHDRAWN
     if row.event_type is not NotificationEventType.REVIEW_POSTPONED_DUE:
         return True
     review = session.get(OpportunityReview, row.review_id) if row.review_id else None

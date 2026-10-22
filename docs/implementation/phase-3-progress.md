@@ -11,10 +11,10 @@ another session can resume the work without repeating it. The specification is
 | 1 | `docs/phase-3-alignment` | M0 | Repository-fit audit, specification, ADR 0006, ADR 0007, roadmap, this log | PR open |
 | 2 | `feat/document-foundation` | M1 | `documents` module: canonical schemas, tables and migration, run creation in `apply_decision`, reopen guard, authorization re-check, input snapshot, leased claiming, `ArtifactStore`, template registry metadata, candidate `contact` | PR open |
 | 3 | `feat/document-drafting` | M2 | Evidence selection, deterministic assembler, LLM drafter, verification checks 1–6, clarifications, section regeneration, `verify` runs in the worker | PR open |
-| 4 | `feat/document-docx` | M3 | Renderer process and artifact lifecycle, style revisions, DOCX renderer, DOCX QA, download route | not started |
+| 4 | `feat/document-docx` | M3 | Renderer process and artifact lifecycle, style revisions, DOCX renderer, DOCX QA, download route, approval, `documents.*` notifications | PR open |
 | 5 | `feat/document-pdf` | M3 | Templates (`clean`, `modern-deedy`, `modern`), `print.html`, Playwright PDF renderer, PDF QA, `renderer` Dockerfile target and Compose service, license review | not started |
 | 6 | `feat/document-workspace` | M4 | Bundle page: preview, structured editor, style controls, evidence and issues, clarifications, regenerate, history, downloads, approval | not started |
-| 7 | `chore/phase-3-hardening` | M5 | `documents.*` notifications, restart and failure tests, security and accessibility passes, resource limits, runbook, release checklist | not started |
+| 7 | `chore/phase-3-hardening` | M5 | Restart and failure tests, security and accessibility passes, resource limits, runbook, release checklist | not started |
 
 Each PR is based on the previous one until it merges. DOCX comes before PDF so that the
 artifact lifecycle can be built and tested without a browser.
@@ -96,6 +96,22 @@ Facts confirmed in code:
   verdicts are cached per bundle by a key over the claim text and its sources. JSON in
   prompts escapes `<` and `>` so job text cannot close its tag. Regeneration refuses to
   overwrite an edit made while it ran (it retries from the new revision).
+
+- PR 4: 329 Python tests pass (+19 unit: dates, punctuation, section order and visibility,
+  letter display, DOCX for 3 templates × 2 page sizes × 2 densities passing QA, native bullets
+  and template font, QA catches missing and reordered text and records counts only, empty and
+  non-PDF files, long unbroken text kept whole; +11 integration: four files queued per
+  bundle, a DOCX-only renderer leaves PDFs, one notification when every file settles,
+  hash-checked draft-named downloads behind auth, style changes supersede files without
+  touching content or drafting, a file superseded mid-render is discarded, failures retry
+  then fail and notify, QA failures are never ready, the orphan sweep, approval binds exact
+  revisions and hashes and is lost on change, approval refused after a fact is retired or
+  the review reopened, failed initial runs notify).
+- PR 4 implementation notes: the display model (`display.py`) is the single place that
+  formats dates, orders and hides sections and punctuates sentences; DOCX, the coming PDF
+  print page, the web preview and QA all consume it. QA stores counts, never text.
+  Approval and notifications moved into this PR because they depend on files settling.
+  A test that left a session open blocked the fixture's `TRUNCATE`; tests close sessions.
 
 ## Known limitations / open issues
 
