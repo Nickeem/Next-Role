@@ -1,6 +1,6 @@
 # ADR 0003: Deterministic matching; LLM limited to grounded requirement segmentation
 
-- Status: accepted (Phase 1)
+- Status: accepted (Phase 1); the candidate-data rule is superseded for drafting by ADR 0006
 - Date: 2026-10-18
 
 ## Context

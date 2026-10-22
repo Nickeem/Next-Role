@@ -63,8 +63,9 @@ a rejection when the tier is `strong` and there are no blocking gaps. A low scor
 blocks a decision; it only requires a reason.
 
 Reopening an approval revokes it. In Phase 2 nothing consumes approvals, so revocation is
-always allowed. Phase 3 must refuse to revoke once drafting has started, and must check the
-current review state and its assessment before it starts drafting.
+always allowed. Phase 3 checks the current review state and its assessment before drafting.
+It refuses to revoke only while a generation run is `running`; a queued run is cancelled, and
+reopening after drafting withdraws the bundle and its document approval (see [document-generation.md §2](document-generation.md#2-differences-from-the-proposed-plan)).
 
 ### 3.3 Assessments and reviews
 

@@ -112,8 +112,8 @@ merged up the stack:
   it.
 - `frontend/src/types.ts` is maintained by hand; generating it from OpenAPI is a possible
   follow-up.
-- Phase 3 must check the current review state and its assessment before drafting, and block
-  revoking an approval once drafting has started.
+- Phase 3 must check the current review state and its assessment before drafting. Revocation
+  is refused only while a run is `running` (narrowed by the Phase 3 specification, §2).
 - PR 3: 160 tests pass (11 API tests: queue contents and sort, filters and search,
   pagination, rejected hidden by default, detail, decision flow and history, 409/422/404
   errors, weak-tier override, summary and due follow-ups, activity filters, preferences,

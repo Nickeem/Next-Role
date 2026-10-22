@@ -65,5 +65,6 @@ reminders are the first work that must happen outside a request.
   send a duplicate.
 - `matching.service` depends on `review.service`. Any future caller of `run_assessment`
   (such as a discovery worker) gets review creation for free.
-- Phase 3 must check the current review state and its assessment before drafting, and must
-  block revocation once drafting starts.
+- Phase 3 must check the current review state and its assessment before drafting. ADR 0006
+  and the Phase 3 specification narrow revocation: refused only while a run is `running`;
+  otherwise the run is cancelled or the bundle withdrawn.
