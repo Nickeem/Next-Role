@@ -4,6 +4,11 @@
   "headline": "Backend engineer (synthetic example profile)",
   "summary": "Synthetic candidate used for documentation and tests. Not a real person.",
   "location": "Toronto, ON, Canada",
+  "contact": {
+    "email": "alex@example.invalid",
+    "phone": "+1 555 0100",
+    "links": [{"label": "Portfolio", "url": "https://git.example.invalid/alex-example"}]
+  },
   "preferences": {
     "desired_titles": ["Senior Backend Engineer", "Platform Engineer"],
     "locations": ["Toronto", "Canada"],

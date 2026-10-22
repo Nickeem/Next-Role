@@ -16,6 +16,7 @@ from next_role.candidates.models import (
 )
 from next_role.candidates.schemas import (
     ATTRIBUTE_MODELS,
+    CandidateContact,
     CandidateOut,
     CandidatePreferences,
     CandidateProfileIn,
@@ -57,6 +58,7 @@ def candidate_out(candidate: Candidate, include_retired: bool = False) -> Candid
         headline=candidate.headline,
         summary=candidate.summary,
         location=candidate.location,
+        contact=CandidateContact.model_validate(candidate.contact or {}),
         preferences=CandidatePreferences.model_validate(candidate.preferences),
         created_at=candidate.created_at,
         updated_at=candidate.updated_at,
@@ -100,6 +102,7 @@ def create_candidate_profile(session: Session, payload: CandidateProfileIn) -> C
         headline=payload.headline,
         summary=payload.summary,
         location=payload.location,
+        contact=payload.contact.model_dump(mode="json", exclude_none=True),
         preferences=payload.preferences.model_dump(mode="json"),
     )
     session.add(candidate)
@@ -147,11 +150,13 @@ def get_candidate(session: Session, candidate_id: uuid.UUID) -> Candidate:
 
 def update_candidate(session: Session, candidate_id: uuid.UUID, data: CandidateUpdate) -> Candidate:
     candidate = get_candidate(session, candidate_id)
-    changes = data.model_dump(exclude_unset=True, exclude={"preferences"})
+    changes = data.model_dump(exclude_unset=True, exclude={"preferences", "contact"})
     for field, value in changes.items():
         if value is None and field == "full_name":
             raise InvalidInputError("full_name cannot be null")
         setattr(candidate, field, value)
+    if data.contact is not None:
+        candidate.contact = data.contact.model_dump(mode="json", exclude_none=True)
     if data.preferences is not None:
         candidate.preferences = data.preferences.model_dump(mode="json")
     session.flush()

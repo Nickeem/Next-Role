@@ -56,7 +56,7 @@ TRANSITIONS: dict[ReviewAction, tuple[frozenset[ReviewStatus], ReviewStatus]] = 
     _A.REJECT: (_DECIDABLE, _S.REJECTED),
     _A.APPROVE_FOR_DRAFTING: (_DECIDABLE, _S.APPROVED_FOR_DRAFTING),
     _A.RETURN_TO_REVIEW: (frozenset({_S.SHORTLISTED, _S.POSTPONED}), _S.PENDING_REVIEW),
-    # Reopening an approval revokes it. Phase 3 must refuse once drafting has started.
+    # Reopening an approval revokes it; documents.runs.revoke refuses while drafting runs.
     _A.REOPEN: (frozenset({_S.REJECTED, _S.APPROVED_FOR_DRAFTING}), _S.PENDING_REVIEW),
 }
 

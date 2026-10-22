@@ -57,6 +57,24 @@ class CandidatePreferences(_Strict):
     salary_currency: Annotated[str, Field(pattern=r"^[A-Z]{3}$")] | None = None
 
 
+# --- Contact details --------------------------------------------------------------------
+
+
+class ContactLink(_Strict):
+    label: Annotated[str, Field(min_length=1, max_length=60)]
+    url: HttpUrl
+
+
+class CandidateContact(_Strict):
+    """Contact details for document headers. Filled in by code; never sent to an LLM."""
+
+    email: Annotated[str, Field(max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")] | None = (
+        None
+    )
+    phone: Annotated[str, Field(max_length=40, pattern=r"^[0-9+()./ -]{3,40}$")] | None = None
+    links: Annotated[list[ContactLink], Field(max_length=5)] = []
+
+
 # --- Evidence ----------------------------------------------------------------------------
 
 
@@ -429,6 +447,7 @@ class CandidateBase(_Strict):
     headline: ShortStr | None = None
     summary: LongStr | None = None
     location: ShortStr | None = None
+    contact: CandidateContact = CandidateContact()
     preferences: CandidatePreferences = CandidatePreferences()
 
 
@@ -463,6 +482,7 @@ class CandidateUpdate(_Strict):
     headline: ShortStr | None = None
     summary: LongStr | None = None
     location: ShortStr | None = None
+    contact: CandidateContact | None = None
     preferences: CandidatePreferences | None = None
 
 
@@ -479,6 +499,7 @@ class CandidateSummaryOut(BaseModel):
 class CandidateOut(CandidateSummaryOut):
     summary: str | None
     location: str | None
+    contact: CandidateContact
     preferences: CandidatePreferences
     evidence_sources: list[EvidenceSourceOut]
     facts: list[FactOut]
