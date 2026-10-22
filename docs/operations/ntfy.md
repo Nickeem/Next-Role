@@ -92,6 +92,11 @@ ID is forwarded upstream, not the message.
 - **At least once:** if the worker stops after ntfy accepted a message but before recording it,
   the message is sent again. A `2xx` from ntfy means the server accepted it, not that a device
   displayed it.
+- **Documents:** `documents.ready`, `documents.needs_input`, and `documents.failed` are
+  queued once per bundle when all its current files have rendered (or a drafting run failed
+  for good). They link to the documents page, carry no personal data, and are cancelled if
+  the approval to draft is revoked before sending. One `documents` preference switches all
+  three off.
 - Turning an event type off (`PATCH /api/v1/notification-preferences`) affects events from then
   on; already-queued notifications are still sent.
 

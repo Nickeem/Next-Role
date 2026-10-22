@@ -351,3 +351,26 @@ test("design changes preview before they are applied", async () => {
   const styleBody = JSON.parse(String(calls.find((c) => c.path.endsWith("/style"))?.init.body));
   expect(styleBody).toMatchObject({ settings: { template_id: "modern-deedy" }, expected_version: 4 });
 });
+
+test("the approval dialog keeps focus inside and closes on Escape", async () => {
+  const user = userEvent.setup();
+  const ready = () =>
+    bundle({
+      status: "ready_for_review",
+      clarifications: [],
+      resume: { ...bundle().resume!, verification: { ...bundle().resume!.verification!, status: "passed", claims: [] } },
+    });
+  routes(ready);
+  renderPage();
+  const open = await screen.findByRole("button", { name: "Approve documents" });
+  await user.click(open);
+  const dialog = screen.getByRole("dialog", { name: "Approve these documents?" });
+  const confirm = within(dialog).getByRole("button", { name: "Approve documents" });
+  expect(confirm).toHaveFocus();
+  await user.tab();
+  expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+  await user.tab();
+  expect(confirm).toHaveFocus();
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).toBeNull();
+});

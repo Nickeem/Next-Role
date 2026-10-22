@@ -46,7 +46,7 @@ Pull requests, in order:
 - [x] Web workspace: review queue, assessment detail, decisions, activity, settings.
 - [x] Hardening: security and accessibility passes, runbook, release checklist.
 
-## Phase 3: Tailored resume and cover-letter generation (planned; not started)
+## Phase 3: Tailored resume and cover-letter generation (implemented; awaiting review and sign-off)
 
 Goal: for each job the candidate approves for drafting, generate a tailored resume and cover
 letter whose substantive claims cite and are checked against the candidate's facts, render
@@ -58,14 +58,14 @@ and ADR 0007, and progress is tracked in
 
 Pull requests, in order:
 
-- [ ] Docs alignment: repository-fit audit, specification, ADR 0006, ADR 0007.
-- [ ] Document foundation: schemas, tables, run creation on approval, snapshots, storage.
-- [ ] Drafting and verification: evidence selection, LLM and deterministic drafting, claim
+- [x] Docs alignment: repository-fit audit, specification, ADR 0006, ADR 0007.
+- [x] Document foundation: schemas, tables, run creation on approval, snapshots, storage.
+- [x] Drafting and verification: evidence selection, LLM and deterministic drafting, claim
       checks, clarifications.
-- [ ] DOCX rendering and the artifact lifecycle.
-- [ ] Templates, PDF rendering, and the renderer service.
-- [ ] Document workspace: preview, editing, styles, approval.
-- [ ] Hardening: notifications, recovery, security, runbook, release checklist.
+- [x] DOCX rendering and the artifact lifecycle.
+- [x] Templates, PDF rendering, and the renderer service.
+- [x] Document workspace: preview, editing, styles, approval.
+- [x] Hardening: notifications, recovery, security, runbook, release checklist.
 
 ## Later phases (high level, not yet planned in detail)
 

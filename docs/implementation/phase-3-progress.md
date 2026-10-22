@@ -14,7 +14,7 @@ another session can resume the work without repeating it. The specification is
 | 4 | `feat/document-docx` | M3 | Renderer process and artifact lifecycle, style revisions, DOCX renderer, DOCX QA, download route, approval, `documents.*` notifications | PR open |
 | 5 | `feat/document-pdf` | M3 | Templates (`clean`, `modern-deedy`, `modern`), `print.html`, Playwright PDF renderer, PDF QA, `renderer` Dockerfile target and Compose service, license review | PR open |
 | 6 | `feat/document-workspace` | M4 | Bundle page: preview, structured editor, style controls, evidence and issues, clarifications, regenerate, history, downloads, approval | PR open |
-| 7 | `chore/phase-3-hardening` | M5 | Restart and failure tests, security and accessibility passes, resource limits, runbook, release checklist | not started |
+| 7 | `chore/phase-3-hardening` | M5 | Restart and failure tests, security and accessibility passes, resource limits, runbook, release checklist | PR open |
 
 Each PR is based on the previous one until it merges. DOCX comes before PDF so that the
 artifact lifecycle can be built and tested without a browser.
@@ -151,6 +151,39 @@ Facts confirmed in code:
   `POST /bundles/{id}/preview`, so it always matches the files. The page polls every 3 s
   only while drafting, checks or rendering are in progress. Approving for drafting now
   explains that drafting starts; reopening explains that drafts are withdrawn.
+
+- PR 7: 333 Python tests pass, 8 PDF tests skipped outside the renderer image (+3: a worker
+  that dies mid-draft is taken over once after its lease; a renderer that dies mid-render
+  leaves no ready row, its partial file is replaced on takeover; all 16 document routes
+  return 401 without credentials). 36 frontend tests pass (+1: approval dialog focus trap).
+  `npm audit` could not reach its endpoint from the sandbox (no npm dependencies were added
+  in Phase 3).
+- PR 7 manual checks on the Compose stack: confirmed cited facts, dismissed required
+  questions, re-checked; stopped the renderer, changed the design (new files queued while it
+  was down), started it again, and the files rendered; approved with the exact hashes; the
+  PDF downloaded as `alex-example-resume-fabrikam-logistics-r1.pdf` (no `-DRAFT`);
+  `documents.needs_input` and `documents.ready` were queued once each. The runbook's erasure
+  SQL was run against that database and removed the candidate, bundles and inputs.
+
+## Release readiness (Phase 3)
+
+- **Shipped:** generation queued on approval with revocation rules; immutable input
+  snapshots; deterministic and optional LLM drafting with strict schemas and fallback; claim
+  verification (protected values, numbers, skills, evidence, wording, trust) with LLM checks
+  that can only downgrade; questions, answers and confirm-as-fact; three templates; PDF via
+  isolated Chromium and native DOCX, both checked for lost or reordered text; style changes
+  without redrafting; approval of exact revisions, style and file hashes; hash-checked
+  downloads; `documents.*` notifications; the documents workspace.
+- **Security and privacy:** candidate data reaches an LLM only with
+  `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true`; contact details never; job text is escaped data
+  in prompts; the renderer has no internet route, a read-only root filesystem, no
+  capabilities and only bundled files in the browser; downloads need authentication; logs and
+  QA records hold counts and identifiers only.
+- **Deployment changes:** new `renderer` service (Playwright image, about 3.8 GB) and
+  `artifacts` volume (back it up with `pgdata`); migrations `0008_documents` and
+  `0009_document_notifications`; new settings in `.env.example`.
+- **Deferred:** drag-and-drop editing; placing achievements without a parent entry; more
+  templates; generating `frontend/src/documents/types.ts` from OpenAPI.
 
 ## Known limitations / open issues
 

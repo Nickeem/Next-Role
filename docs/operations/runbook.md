@@ -10,9 +10,10 @@ For a single-operator, self-hosted deployment with Docker Compose. ntfy specific
 | `db` | PostgreSQL 16, the only durable store (`pgdata` volume) | `pg_isready` |
 | `migrate` | Runs `alembic upgrade head`, then exits | must exit 0 before `api`/`worker` start |
 | `api` | FastAPI: web workspace at `/`, API at `/api/v1` | `GET /health/ready` (database reachable, schema revision) |
-| `worker` | Postponed-review reminders and ntfy publishing | `python -m next_role.worker --check` (heartbeat, touched after each loop and each dispatched notification, is newer than max(60 s, 3 × poll, 2 × (poll + ntfy timeout))) |
+| `worker` | Document drafting and checks, postponed-review reminders, ntfy publishing | `python -m next_role.worker --check` (heartbeat, touched after each loop and each dispatched notification, is newer than max(60 s, 3 × poll, 2 × (poll + ntfy timeout)), and poll + 4 × LLM timeout when an LLM is configured) |
+| `renderer` | Renders PDF (Chromium) and DOCX files, checks them, writes them to the `artifacts` volume, removes orphaned files (ADR 0007). Internal network only, read-only root filesystem | `python -m next_role.renderer --check` (heartbeat newer than max(60 s, 3 × poll, 2 × render timeout + 30 s)) |
 
-`docker compose ps` shows all of them; `docker compose logs -f api worker` shows JSON logs
+`docker compose ps` shows all of them; `docker compose logs -f api worker renderer` shows JSON logs
 with identifiers and counts only (no candidate facts, job text, or tokens).
 
 ## First deployment
@@ -52,8 +53,10 @@ in tables added by later migrations.
 
 ## Backup and restore
 
-Everything durable is in PostgreSQL: candidate facts, jobs, assessments, reviews, decision
-history, the notification outbox, and sessions.
+Everything durable is in PostgreSQL (candidate facts, jobs, assessments, reviews, decision
+history, documents and their versions, the notification outbox, and sessions), except the
+rendered PDF and DOCX files, which are in the `artifacts` volume. Back up both together:
+each ready file's SHA-256 is in the database, and a download is refused if they disagree.
 
 ```bash
 # Backup (compressed, custom format)
@@ -66,6 +69,20 @@ docker compose exec -T db createdb -U next_role next_role
 docker compose exec -T db pg_restore -U next_role -d next_role --no-owner < next-role-YYYY-MM-DD.dump
 docker compose up -d --wait
 ```
+
+```bash
+# Rendered files (the volume is named <project>_artifacts, e.g. next-role_artifacts)
+docker run --rm -v next-role_artifacts:/a:ro -v "$PWD":/b alpine \
+  tar czf /b/next-role-artifacts-$(date +%F).tgz -C /a .
+# Restore (with the renderer stopped)
+docker compose stop renderer
+docker run --rm -v next-role_artifacts:/a -v "$PWD":/b alpine \
+  sh -c "tar xzf /b/next-role-artifacts-YYYY-MM-DD.tgz -C /a && chown -R 10001 /a"
+docker compose up -d --wait
+```
+
+A file lost after a restore without the volume can be rendered again: set its row back to
+`pending` (`UPDATE document_artifacts SET status = 'pending', attempts = 0 WHERE id = '…'`).
 
 Backups contain personal data: store them encrypted and outside the repository. Test a
 restore before you rely on the backups.
@@ -95,6 +112,11 @@ docker compose exec db psql -U next_role -d next_role -c "DELETE FROM operator_s
 | A decision returns "has changed … reload and retry" | Another tab or a new assessment updated the review; reload and decide again |
 | `worker` is `unhealthy` | `docker compose logs worker`; usually the database is unreachable; the worker retries each poll |
 | Notifications stop | `GET /api/v1/integrations/ntfy/status` or Settings; see [ntfy.md](ntfy.md#troubleshooting) |
+| Documents never appear after approving for drafting | `docker compose logs worker`; the run's status and error are on the review page and in `GET /api/v1/reviews/{id}/documents`. `stale_authorization` means the role was re-assessed or the approval revoked: approve again |
+| Documents are "assembled from your facts" although an LLM is configured | `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA` is not `true` (ADR 0006); the bundle's drafting notes say so |
+| Files stay "Waiting to render" | `docker compose ps renderer` and `docker compose logs renderer`; the renderer must reach `db` on the internal `backend` network |
+| A file "failed its checks" | A rendering bug: the file lost or reordered text. Logs carry counts only; retry from the documents page, and report it with the template and page size |
+| A download says the file is unavailable | The file is missing or does not match its hash (restored database without the volume?): render it again (see Backup and restore) |
 | `/health/ready` returns 503 | Database down or migrations not applied: `docker compose logs db migrate` |
 
 ## Data handling
@@ -102,17 +124,43 @@ docker compose exec db psql -U next_role -d next_role -c "DELETE FROM operator_s
 - Decision history (`review_events`) cannot be updated or deleted, by design (a database
   trigger), and its foreign key is `ON DELETE RESTRICT`: deleting a review, job, or candidate
   that has history fails instead of cascading. There is no API to delete candidates or jobs.
-- To erase a candidate's personal data (for example on request), take a backup, then in one
-  transaction disable the trigger, delete, and re-enable it. Record why outside the
-  database:
+- Generated documents follow the same rule: `generation_inputs`, `document_revisions`,
+  `document_styles`, and `document_approvals` are append-only (triggers), and document tables
+  reference candidates, jobs and reviews with `ON DELETE RESTRICT`.
+- To erase a candidate's personal data (for example on request), take a backup, then run the
+  following in one transaction (tested against the schema at `0009`). Record why outside
+  the database. The candidate's rendered files lose their database rows and the renderer's
+  orphan sweep deletes them within about an hour and a half. Backups taken earlier still
+  contain them.
 
   ```sql
   BEGIN;
   ALTER TABLE review_events DISABLE TRIGGER review_events_append_only;
+  ALTER TABLE generation_inputs DISABLE TRIGGER generation_inputs_append_only;
+  ALTER TABLE document_revisions DISABLE TRIGGER document_revisions_append_only;
+  ALTER TABLE document_styles DISABLE TRIGGER document_styles_append_only;
+  ALTER TABLE document_approvals DISABLE TRIGGER document_approvals_append_only;
+  CREATE TEMP TABLE erase_bundles ON COMMIT DROP AS
+    SELECT id FROM document_bundles WHERE candidate_id = '<candidate id>';
+  DELETE FROM document_approvals WHERE bundle_id IN (SELECT id FROM erase_bundles);
+  DELETE FROM document_artifacts WHERE bundle_id IN (SELECT id FROM erase_bundles);
+  DELETE FROM document_verifications WHERE revision_id IN
+    (SELECT id FROM document_revisions WHERE bundle_id IN (SELECT id FROM erase_bundles));
+  DELETE FROM clarification_requests WHERE bundle_id IN (SELECT id FROM erase_bundles);
+  DELETE FROM document_revisions WHERE bundle_id IN (SELECT id FROM erase_bundles);
+  DELETE FROM document_styles WHERE bundle_id IN (SELECT id FROM erase_bundles);
+  DELETE FROM generation_runs WHERE review_id IN
+    (SELECT id FROM opportunity_reviews WHERE candidate_id = '<candidate id>');
+  DELETE FROM document_bundles WHERE id IN (SELECT id FROM erase_bundles);
+  DELETE FROM generation_inputs WHERE candidate_id = '<candidate id>';
   DELETE FROM review_events WHERE review_id IN
     (SELECT id FROM opportunity_reviews WHERE candidate_id = '<candidate id>');
   DELETE FROM candidates WHERE id = '<candidate id>';
   ALTER TABLE review_events ENABLE TRIGGER review_events_append_only;
+  ALTER TABLE generation_inputs ENABLE TRIGGER generation_inputs_append_only;
+  ALTER TABLE document_revisions ENABLE TRIGGER document_revisions_append_only;
+  ALTER TABLE document_styles ENABLE TRIGGER document_styles_append_only;
+  ALTER TABLE document_approvals ENABLE TRIGGER document_approvals_append_only;
   COMMIT;
   ```
 - Rejected reviews are kept, and hidden from the queue by default.
