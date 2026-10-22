@@ -81,8 +81,10 @@ docker run --rm -v next-role_artifacts:/a -v "$PWD":/b alpine \
 docker compose up -d --wait
 ```
 
-A file lost after a restore without the volume can be rendered again: set its row back to
-`pending` (`UPDATE document_artifacts SET status = 'pending', attempts = 0 WHERE id = '…'`).
+A file lost after restoring only the database can be rendered again: its download reports
+it unavailable, and `POST /api/v1/artifacts/{id}/retry` re-renders a ready file whose stored
+copy is missing or does not match its hash (failed files can also be retried from the
+documents page).
 
 Backups contain personal data: store them encrypted and outside the repository. Test a
 restore before you rely on the backups.
@@ -116,7 +118,7 @@ docker compose exec db psql -U next_role -d next_role -c "DELETE FROM operator_s
 | Documents are "assembled from your facts" although an LLM is configured | `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA` is not `true` (ADR 0006); the bundle's drafting notes say so |
 | Files stay "Waiting to render" | `docker compose ps renderer` and `docker compose logs renderer`; the renderer must reach `db` on the internal `backend` network |
 | A file "failed its checks" | A rendering bug: the file lost or reordered text. Logs carry counts only; retry from the documents page, and report it with the template and page size |
-| A download says the file is unavailable | The file is missing or does not match its hash (restored database without the volume?): render it again (see Backup and restore) |
+| A download says the file is unavailable | The file is missing or does not match its hash (restored database without the volume?): re-render it with `POST /api/v1/artifacts/{id}/retry` (see Backup and restore) |
 | `/health/ready` returns 503 | Database down or migrations not applied: `docker compose logs db migrate` |
 
 ## Data handling

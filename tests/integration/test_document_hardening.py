@@ -63,7 +63,7 @@ def test_a_renderer_that_dies_mid_render_leaves_no_ready_row_and_recovers(
         assert claimed is not None
         claimed_id = claimed.id
     # A partial file without a ready row is what a crash after writing would leave.
-    store.put(f"{claimed.bundle_id}/{claimed_id}.{claimed.format.value}", b"partial")
+    store.put(f"{claimed.bundle_id}/{claimed_id}-1.{claimed.format.value}", b"partial")
     assert _render_all(ctx) == 3  # the other files render; the claimed one waits
     with session_factory() as s:
         row = s.get(DocumentArtifact, claimed_id)

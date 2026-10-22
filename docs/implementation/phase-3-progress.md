@@ -200,3 +200,15 @@ Facts confirmed in code:
   confirming the text as a fact (no bare acknowledgement); cited facts must be active at
   approval; a permanently failed artifact queues `documents.failed`, not `ready`; the Phase 2
   docs and ADR 0004 now point to the narrowed revocation rule.
+- PR 2 (#11): evidence ids must be UUIDs (36 hyphens no longer pass); a resume needs at least
+  one section; the artifact directory is fsynced after the rename.
+- PR 3 (#12): every cited fact under an entry must be that entry's or a child (skill facts
+  excepted), not just one of them; a project's current flag is protected; regenerating one
+  document no longer calls the model for the other.
+- PR 4 (#13): storage keys are per attempt (`<artifact>-<attempt>.<ext>`), so an attempt that
+  lost its lease cannot delete a newer attempt's file; failed runs notify once per bundle
+  (or once per approval before a bundle exists) and are cancelled when no longer relevant;
+  retry also re-renders a ready file whose stored copy is missing or damaged.
+- PR 5 (#14): Compose fixes `NEXT_ROLE_ARTIFACT_DIR` to the mounted volume for `api` and
+  `renderer`; backing up the `artifacts` volume is in the runbook (PR 7, #16).
+- Review fixes were made on each branch and merged up the stack (no force-push).
