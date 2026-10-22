@@ -25,7 +25,7 @@ from next_role.documents.models import (
     DocumentKind,
     DocumentRevision,
 )
-from next_role.documents.storage import ArtifactStore
+from next_role.documents.storage import ArtifactStore, StorageError, read_verified
 from next_role.documents.workflow import (
     SETTLED_ARTIFACT_STATUSES,
     ArtifactStatus,
@@ -56,7 +56,9 @@ def bundle_path(bundle_id: uuid.UUID) -> str:
 
 
 def storage_key(artifact: DocumentArtifact) -> str:
-    return f"{artifact.bundle_id}/{artifact.id}.{artifact.format.value}"
+    """Unique per attempt, so an attempt that lost its lease can only ever delete its own
+    file, never the one a later attempt published."""
+    return f"{artifact.bundle_id}/{artifact.id}-{artifact.attempts}.{artifact.format.value}"
 
 
 def current_targets(
@@ -240,15 +242,27 @@ def _fail(session: Session, artifact: DocumentArtifact, error: str, now: datetim
     after_settle(session, artifact.bundle_id)
 
 
-def retry(session: Session, artifact_id: uuid.UUID, now: datetime) -> DocumentArtifact:
-    """Queue a failed artifact again (the operator asked)."""
+def retry(
+    session: Session, artifact_id: uuid.UUID, now: datetime, store: ArtifactStore
+) -> DocumentArtifact:
+    """Render a file again (the operator asked): one that failed, or a ready one whose stored
+    file is missing or no longer matches its hash (e.g. after restoring only the database)."""
     artifact = session.scalar(
         select(DocumentArtifact).where(DocumentArtifact.id == artifact_id).with_for_update()
     )
     if artifact is None:
         raise NotFoundError(f"Artifact {artifact_id} not found")
-    if artifact.status is not ArtifactStatus.FAILED:
-        raise ConflictError("Only failed files can be retried")
+    if artifact.status is ArtifactStatus.READY:
+        try:
+            read_verified(store, artifact.storage_key or "", artifact.sha256 or "")
+        except StorageError:
+            pass
+        else:
+            raise ConflictError("This file is ready and intact")
+        artifact.storage_key = None
+        artifact.sha256 = None
+    elif artifact.status is not ArtifactStatus.FAILED:
+        raise ConflictError("Only failed or damaged files can be rendered again")
     artifact.status = ArtifactStatus.PENDING
     artifact.attempts = 0
     artifact.next_attempt_at = now
@@ -284,6 +298,12 @@ def bundle_from_key(event_key: str) -> uuid.UUID | None:
     return uuid.UUID(match.group(1)) if match else None
 
 
+def approval_from_key(event_key: str) -> uuid.UUID | None:
+    """The approval event of a ``documents.failed:approval:<id>`` notification."""
+    match = re.fullmatch(r"documents\.failed:approval:([0-9a-f-]{36})", event_key)
+    return uuid.UUID(match.group(1)) if match else None
+
+
 def sweep_orphans(session: Session, store: ArtifactStore, now: datetime) -> int:
     """Delete stored files that no ready artifact points at. Returns how many were removed."""
     referenced = set(
@@ -302,7 +322,7 @@ def sweep_orphans(session: Session, store: ArtifactStore, now: datetime) -> int:
     )
     removed = 0
     for key in list(store.keys()):
-        artifact_id = key.split("/")[1].split(".")[0]
+        artifact_id = key.split("/")[1][:36]
         if key in referenced or artifact_id in in_flight:
             continue
         if store.age(key) < ORPHAN_AGE:
