@@ -254,8 +254,12 @@ def _check_claim(ref: ClaimRef, claim: Claim, ctx: Context, is_letter: bool) -> 
     if not claim.evidence_ids:
         result.issues.append(Issue("no_evidence", "Cites no supporting fact"))
     if ref.item is not None:
-        allowed = {ref.item.source_fact_id}
-        if facts and not any(f.id in allowed or f.parent_fact_id in allowed for f in facts):
+        # Every cited fact must be this entry's or sit under it; skills belong to no entry.
+        source = ref.item.source_fact_id
+        if any(
+            f.id != source and f.parent_fact_id != source and f.fact_type is not FactType.SKILL
+            for f in facts
+        ):
             result.issues.append(
                 Issue("misattributed", "Cites facts that do not belong to this entry")
             )
@@ -418,6 +422,7 @@ def _project_fields(item: ProjectItem, fact: FactSnapshot) -> dict[str, tuple[An
         "organization": (item.organization, fact.organization if item.organization else None),
         "start date": (item.start_date, year_month(fact.start_date)),
         "end date": (item.end_date, year_month(fact.end_date)),
+        "current": (item.is_current, fact.is_current),
     }
 
 
