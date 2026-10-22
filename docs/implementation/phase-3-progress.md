@@ -9,7 +9,7 @@ another session can resume the work without repeating it. The specification is
 | # | Branch | Plan milestone | Scope | Status |
 | - | ------ | -------------- | ----- | ------ |
 | 1 | `docs/phase-3-alignment` | M0 | Repository-fit audit, specification, ADR 0006, ADR 0007, roadmap, this log | PR open |
-| 2 | `feat/document-foundation` | M1 | `documents` module: canonical schemas, tables and migration, run creation in `apply_decision`, reopen guard, authorization re-check, input snapshot, leased claiming, `ArtifactStore`, template registry metadata, candidate `contact` | not started |
+| 2 | `feat/document-foundation` | M1 | `documents` module: canonical schemas, tables and migration, run creation in `apply_decision`, reopen guard, authorization re-check, input snapshot, leased claiming, `ArtifactStore`, template registry metadata, candidate `contact` | PR open |
 | 3 | `feat/document-drafting` | M2 | Evidence selection, deterministic assembler, LLM drafter, verification checks 1–6, clarifications, section regeneration, `verify_revision` runs in the worker | not started |
 | 4 | `feat/document-docx` | M3 | Renderer process and artifact lifecycle, style revisions, DOCX renderer, DOCX QA, download route | not started |
 | 5 | `feat/document-pdf` | M3 | Templates (`clean`, `modern-deedy`, `modern`), `print.html`, Playwright PDF renderer, PDF QA, `renderer` Dockerfile target and Compose service, license review | not started |
@@ -58,7 +58,23 @@ Facts confirmed in code:
 
 ## Testing log
 
-- Baseline before Phase 3: to be recorded at the start of PR 2.
+- Baseline before Phase 3: 219 Python and 25 frontend tests pass on `main` (`1c34741`).
+- PR 2: 253 Python tests pass (+19 unit: canonical schemas, style settings, template tokens,
+  storage atomicity and hashes, retry policy, bundle status; +15 integration: one run per
+  approval, other decisions queue nothing, reopen cancels a queued run, reopen refused under a
+  live lease and allowed after it expires, reopen withdraws a bundle and re-approval starts a
+  new run, leases prevent double claims and recover crashes, attempts exhausted, retry with
+  backoff, authorization goes stale on a newer assessment, snapshot pins the assessment and
+  tracks retired and edited facts, append-only trigger, review documents route, contact
+  validation). The migration drift test covers `0008_documents`.
+
+- PR 2 implementation notes: bundles have no "current revision" pointers; the current
+  revision per kind and the current style are the highest `seq` (unique per bundle), which
+  avoids circular foreign keys. Verification status lives on `document_verifications`, not
+  on the immutable revision. Bundle states are `needs_input`, `ready_for_review`, `approved`,
+  `withdrawn`; drafting progress is the run's status. Document tables reference candidates,
+  jobs and reviews with `ON DELETE RESTRICT`, like `review_events`. The worker does not
+  process runs yet (PR 3). Notifications move from PR 7 to PR 4, where artifacts settle.
 
 ## Known limitations / open issues
 

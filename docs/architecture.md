@@ -33,6 +33,7 @@ HTTP client ──► FastAPI routes (api/) ──► domain services ──► 
 | `jobs/` | Manual ingestion, normalization, deduplication, requirement extraction | db, skills, integrations (via protocol) |
 | `matching/` | Pure matching engine, assessment persistence, and retrieval | candidates, jobs, review |
 | `review/` | Candidate decisions: pure state machine (`workflow.py`), reviews, append-only events | matching, notifications |
+| `documents/` | Phase 3 (in progress): generation runs queued on approval, leased claiming, input snapshots, bundles, revisions, styles, artifacts, approvals, template registry, artifact storage | candidates, jobs, matching, review |
 | `notifications/` | Transactional outbox, preferences, `NotificationPublisher` protocol, dispatcher with retries | db |
 | `integrations/ntfy.py` | ntfy HTTP publisher (httpx) | config, notifications |
 | `worker.py` | `python -m next_role.worker`: postponed-review reminders and outbox dispatch | review, notifications, integrations |
@@ -120,7 +121,10 @@ test checks that the ORM models and the migrated schema have not drifted apart.
 
 `review.service.apply_decision` locks the review row, compares the client's
 `expected_version`, validates the action with the pure `review.workflow.decide`, updates the
-state, and appends a `review_events` row, all in one transaction. Invalid transitions raise
+state, and appends a `review_events` row, all in one transaction. Approving for drafting also
+queues a `generation_runs` row in that transaction. Reopening an approval calls
+`documents.runs.revoke`, which refuses while a run holds a live lease, and otherwise cancels
+queued runs and withdraws the approval's bundle. Invalid transitions raise
 `ConflictError` (409); missing confirmation, reason, or postpone date raise
 `InvalidInputError` (422). Decisions never queue notifications.
 
@@ -180,7 +184,9 @@ assessment in SQL so the queue can filter and sort server-side.
 
 ## Not yet implemented
 
-There is no job discovery, document generation, or application tracking, and there are no
+Document generation is being built (Phase 3; see
+[features/document-generation.md](features/document-generation.md)). There is no job
+discovery or application tracking, and there are no
 multi-user accounts. The data model is designed so that each can be added as new tables that
 reference opportunities, candidates, reviews, and assessments, without restructuring existing
 ones.
