@@ -23,7 +23,10 @@ COVER_LETTER_SCHEMA: Literal["cover-letter/v1"] = "cover-letter/v1"
 
 Id = Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,39}$")]
 # A candidate fact id, or "stmt:<clarification id>" for a letter-only operator statement.
-EvidenceId = Annotated[str, Field(pattern=r"^(stmt:)?[0-9a-f-]{36}$")]
+EvidenceId = Annotated[
+    str,
+    Field(pattern=r"^(stmt:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
+]
 YearMonth = Annotated[str, Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
 Line = Annotated[str, Field(min_length=1, max_length=300)]
 
@@ -173,7 +176,7 @@ class ResumeDocument(_Strict):
     schema_version: Literal["resume/v1"] = RESUME_SCHEMA
     header: Header
     target: Target = Target()
-    sections: Annotated[list[Section], Field(max_length=6)]
+    sections: Annotated[list[Section], Field(min_length=1, max_length=6)]
 
     @model_validator(mode="after")
     def _ids(self) -> Self:

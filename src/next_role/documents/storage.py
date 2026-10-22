@@ -61,6 +61,12 @@ class LocalArtifactStore:
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
+        # Make the rename itself durable before a database row can point at the file.
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
         return sha256(data)
 
     def get(self, key: str) -> bytes:

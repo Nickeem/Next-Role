@@ -85,6 +85,10 @@ def test_resume_round_trips_and_claims_are_listed_in_order() -> None:
         lambda d: d["sections"][0]["items"][0].update(start_date="2020-13"),
         # two sections of one type
         lambda d: d["sections"].append({**d["sections"][1], "id": "skills-2"}),
+        # 36 characters but not a UUID
+        lambda d: d["sections"][1]["skills"][0].update(evidence_ids=["-" * 36]),
+        # a resume with nothing in it
+        lambda d: d.update(sections=[]),
     ],
 )
 def test_invalid_resumes_are_rejected(mutate: Any) -> None:
