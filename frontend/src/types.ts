@@ -189,6 +189,7 @@ export interface DecisionInput {
 export interface NotificationPreferences {
   review_ready: boolean;
   review_postponed_due: boolean;
+  documents: boolean;
   updated_at: string | null;
 }
 

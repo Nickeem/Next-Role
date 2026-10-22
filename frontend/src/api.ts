@@ -2,6 +2,23 @@
 // and sent on every state-changing request.
 
 import type {
+  Approval,
+  Artifact,
+  Bundle,
+  Clarification,
+  Content,
+  DocumentKind,
+  FactRef,
+  Preview,
+  ReviewDocuments,
+  Revision,
+  RevisionSummary,
+  Run,
+  Style,
+  StyleSettings,
+  Templates,
+} from "./documents/types";
+import type {
   ActivityItem,
   CandidateSummary,
   DecisionInput,
@@ -128,4 +145,57 @@ export const api = {
     request<NotificationPreferences>("PATCH", "/notification-preferences", update),
   ntfyStatus: () => request<NtfyStatus>("GET", "/integrations/ntfy/status"),
   ntfyTest: () => request<{ outbox_id: string; status: string }>("POST", "/integrations/ntfy/test"),
+
+  // Documents (Phase 3)
+  reviewDocuments: (reviewId: string) =>
+    request<ReviewDocuments>("GET", `/reviews/${encodeURIComponent(reviewId)}/documents`),
+  bundle: (id: string) => request<Bundle>("GET", `/bundles/${encodeURIComponent(id)}`),
+  revisions: (id: string) =>
+    request<RevisionSummary[]>("GET", `/bundles/${encodeURIComponent(id)}/revisions`),
+  revision: (id: string) => request<Revision>("GET", `/revisions/${encodeURIComponent(id)}`),
+  templates: () => request<Templates>("GET", "/templates"),
+  candidateFacts: (candidateId: string) =>
+    request<{ facts: FactRef[] }>("GET", `/candidates/${encodeURIComponent(candidateId)}`),
+  confirmFact: (candidateId: string, factId: string) =>
+    request<FactRef>(
+      "POST",
+      `/candidates/${encodeURIComponent(candidateId)}/facts/${encodeURIComponent(factId)}/verify`,
+    ),
+  preview: (id: string, body: { kind: DocumentKind; content?: Content; settings?: StyleSettings }) =>
+    request<Preview>("POST", `/bundles/${encodeURIComponent(id)}/preview`, body),
+  saveEdit: (id: string, body: { kind: DocumentKind; content: Content; expected_version: number }) =>
+    request<Revision>("POST", `/bundles/${encodeURIComponent(id)}/revisions`, body),
+  regenerate: (
+    id: string,
+    body: { kind: DocumentKind; section: string; expected_version: number; idempotency_key: string },
+  ) => request<Run>("POST", `/bundles/${encodeURIComponent(id)}/regenerations`, body),
+  recheck: (id: string) => request<Run>("POST", `/bundles/${encodeURIComponent(id)}/verifications`),
+  confirmClaim: (id: string, claimId: string, body: { kind: DocumentKind; expected_version: number }) =>
+    request<Revision>(
+      "POST",
+      `/bundles/${encodeURIComponent(id)}/claims/${encodeURIComponent(claimId)}/confirm-as-fact`,
+      body,
+    ),
+  answer: (id: string, body: { answer: string; expected_version: number }) =>
+    request<Clarification>("POST", `/clarifications/${encodeURIComponent(id)}/answer`, body),
+  dismiss: (id: string, body: { reason?: string; expected_version: number }) =>
+    request<Clarification>("POST", `/clarifications/${encodeURIComponent(id)}/dismiss`, body),
+  setStyle: (id: string, body: { settings: StyleSettings; expected_version: number }) =>
+    request<Style>("POST", `/bundles/${encodeURIComponent(id)}/style`, body),
+  retryArtifact: (id: string) =>
+    request<Artifact>("POST", `/artifacts/${encodeURIComponent(id)}/retry`),
+  approveDocuments: (
+    id: string,
+    body: {
+      expected_version: number;
+      resume_revision_id: string;
+      cover_letter_revision_id: string;
+      style_id: string;
+      artifacts: Record<string, string>;
+    },
+  ) => request<Approval>("POST", `/bundles/${encodeURIComponent(id)}/approval`, body),
 };
+
+export function downloadUrl(artifactId: string): string {
+  return buildUrl(`/artifacts/${encodeURIComponent(artifactId)}/download`);
+}

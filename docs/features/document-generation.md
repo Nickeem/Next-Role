@@ -312,6 +312,15 @@ All routes are under `/api/v1` and require authentication.
 | `POST /artifacts/{id}/retry` | Queue a failed file again |
 | `GET /templates` | Template registry (IDs, versions, controls) |
 
+## 11a. Workspace
+
+`/documents/{bundle_id}` (linked from the review page's Documents card) shows the resume and
+letter tabs with a preview rendered by the same template components as the PDF, the files and
+approval checklist, the checks that still need resolving (with "confirm this fact" and "this is
+true as written" actions), questions, design controls, and version history. The structured
+editor changes wording, order and section titles; employers, titles, dates and qualifications
+are read-only. Unsaved edits and designs are previewed through `POST /bundles/{id}/preview`.
+
 ## 12. Notifications
 
 | Event | Sent when | Message |

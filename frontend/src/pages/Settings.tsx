@@ -134,6 +134,14 @@ function PreferencesCard() {
             />
             A postponed role is due
           </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={prefs.data.documents}
+              onChange={(e) => void toggle("documents", e.target.checked)}
+            />
+            Documents are ready, need input, or failed
+          </label>
         </fieldset>
       )}
       {error && (

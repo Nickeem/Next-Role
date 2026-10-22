@@ -59,7 +59,7 @@ test("approving a weak match requires confirmation and a reason", async () => {
 
   await user.click(await screen.findByRole("button", { name: "Approve for drafting" }));
   const dialog = screen.getByRole("dialog", { name: "Approve for drafting?" });
-  expect(dialog).toHaveTextContent("No documents are generated");
+  expect(dialog).toHaveTextContent("Nothing is sent to the employer");
   expect(dialog).toHaveTextContent("goes against the assessment");
 
   await user.click(within(dialog).getByRole("button", { name: "Approve for drafting" }));
@@ -162,4 +162,28 @@ test("with several candidates the review names whose it is", async () => {
     { id: "cand-1", full_name: "Alex Example", headline: null },
   ]);
   expect(await screen.findByText("Alex Example")).toBeVisible();
+});
+
+test("an approved review links to its documents", async () => {
+  const detail = detailFixture();
+  detail.review.status = "approved_for_drafting";
+  mockFetch({
+    "GET /api/v1/reviews/rev-1": () => ({ body: detail }),
+    "GET /api/v1/reviews/rev-1/events": () => ({ body: eventsFixture }),
+    "GET /api/v1/reviews/rev-1/documents": () => ({
+      body: {
+        runs: [{ id: "run-1", intent: "initial", status: "completed", last_error: null }],
+        bundles: [
+          { id: "b-1", review_id: "rev-1", status: "needs_input", drafting_mode: "deterministic", version: 2, created_at: "2026-10-22T10:00:00Z" },
+        ],
+      },
+    }),
+  });
+  renderDetail();
+  const card = await screen.findByRole("region", { name: "Documents" });
+  expect(within(card).getByRole("link", { name: "Open resume and cover letter" })).toHaveAttribute(
+    "href",
+    "/documents/b-1",
+  );
+  expect(within(card).getByText("Needs your input")).toBeVisible();
 });

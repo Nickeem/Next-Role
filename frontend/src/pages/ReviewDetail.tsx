@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useCandidate } from "../candidates";
 import { DecisionPanel } from "../components/DecisionPanel";
+import { DocumentsCard } from "../components/DocumentsCard";
 import { Icon } from "../components/Icons";
 import { TierBadge } from "../components/Pills";
 import { ErrorState, Loading } from "../components/States";
@@ -269,6 +270,7 @@ export function ReviewDetail() {
             hasBlockingGaps={assessment.has_blocking_gaps}
             onChanged={detail.reload}
           />
+          <DocumentsCard reviewId={review.id} status={review.status} version={review.version} />
           {events.data && <History events={events.data} />}
           {events.error && !events.data && (
             <section className="card" aria-labelledby="history-title">
