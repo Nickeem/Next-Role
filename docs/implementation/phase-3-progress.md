@@ -10,7 +10,7 @@ another session can resume the work without repeating it. The specification is
 | - | ------ | -------------- | ----- | ------ |
 | 1 | `docs/phase-3-alignment` | M0 | Repository-fit audit, specification, ADR 0006, ADR 0007, roadmap, this log | PR open |
 | 2 | `feat/document-foundation` | M1 | `documents` module: canonical schemas, tables and migration, run creation in `apply_decision`, reopen guard, authorization re-check, input snapshot, leased claiming, `ArtifactStore`, template registry metadata, candidate `contact` | PR open |
-| 3 | `feat/document-drafting` | M2 | Evidence selection, deterministic assembler, LLM drafter, verification checks 1–6, clarifications, section regeneration, `verify_revision` runs in the worker | not started |
+| 3 | `feat/document-drafting` | M2 | Evidence selection, deterministic assembler, LLM drafter, verification checks 1–6, clarifications, section regeneration, `verify` runs in the worker | PR open |
 | 4 | `feat/document-docx` | M3 | Renderer process and artifact lifecycle, style revisions, DOCX renderer, DOCX QA, download route | not started |
 | 5 | `feat/document-pdf` | M3 | Templates (`clean`, `modern-deedy`, `modern`), `print.html`, Playwright PDF renderer, PDF QA, `renderer` Dockerfile target and Compose service, license review | not started |
 | 6 | `feat/document-workspace` | M4 | Bundle page: preview, structured editor, style controls, evidence and issues, clarifications, regenerate, history, downloads, approval | not started |
@@ -76,12 +76,34 @@ Facts confirmed in code:
   jobs and reviews with `ON DELETE RESTRICT`, like `review_events`. The worker does not
   process runs yet (PR 3). Notifications move from PR 7 to PR 4, where artifacts settle.
 
+- PR 3: 299 Python tests pass (+34 unit: verbatim support, dropped negation, invented numbers
+  and skills, unknown and misattributed evidence, statements only in letters, rewording with
+  and without an LLM, the LLM cannot override deterministic failures, unconfirmed facts,
+  protected entry fields, skill claims, connective templates and smuggled claims, stale
+  evidence; deterministic draft passes its own checks, unconfirmed facts block, questions,
+  verbatim answers, prompt injection, LLM bullets with code-owned entries, prompts escape job
+  text and omit contact details, retry then per-document fallback, judge batching, section
+  replacement, strict output schemas; +11 integration: drafting end to end, edit then check,
+  confirm as fact, confirming profile facts and re-checking, answering and dismissing
+  questions, letter regeneration quoting an answer, career answers as unconfirmed facts,
+  regeneration validation and idempotency, a newer assessment stops drafting, a cancelled
+  run writes nothing, withdrawn bundles are read-only, LLM drafting with cached verdicts,
+  candidate-data opt-in).
+- PR 3 implementation notes: every run builds its own input snapshot (regeneration uses the
+  current facts, including ones confirmed since); verification always checks against the
+  current active facts and records the content hash of each cited fact; entries (jobs,
+  degrees…) are recorded as `item-<id>` results so their source facts are tracked too. LLM
+  verdicts are cached per bundle by a key over the claim text and its sources. JSON in
+  prompts escapes `<` and `>` so job text cannot close its tag. Regeneration refuses to
+  overwrite an edit made while it ran (it retries from the new revision).
+
 ## Known limitations / open issues
 
 - Resume-Matcher's license and any font licenses are reviewed in PR 5, before any design
   element is adapted.
 - Exact Playwright image version, bundled fonts, and renderer resource limits are chosen in
   PR 5.
+- Achievements without a parent job or project are not placed on the resume yet.
 - The deterministic checks cannot detect a claim that strengthens meaning without changing
   values. Only the optional LLM check and the operator's review catch that.
 
