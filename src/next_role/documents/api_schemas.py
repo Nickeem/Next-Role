@@ -6,9 +6,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from next_role.documents.models import DocumentKind, DraftingMode, RevisionAuthor
+from next_role.documents.models import ArtifactFormat, DocumentKind, DraftingMode, RevisionAuthor
 from next_role.documents.schemas import StyleSettings
 from next_role.documents.workflow import (
+    ArtifactStatus,
     BundleStatus,
     ClarificationStatus,
     RunIntent,
@@ -130,6 +131,11 @@ class BundleDetailOut(BundleSummaryOut):
     style: StyleOut | None
     # Queued or running work, newest first, and the last few finished runs.
     runs: list[RunOut]
+    # Files for the current revisions in the current style.
+    artifacts: list["ArtifactOut"]
+    # The latest approval, and whether it still describes the current files.
+    approval: "ApprovalOut | None"
+    approval_current: bool
 
 
 class EditIn(BaseModel):
@@ -177,3 +183,52 @@ class TemplatesOut(BaseModel):
     templates: list[dict[str, Any]]
     controls: dict[str, list[str]]
     defaults: StyleSettings
+
+
+class ArtifactOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    revision_id: uuid.UUID
+    style_id: uuid.UUID
+    format: ArtifactFormat
+    status: ArtifactStatus
+    sha256: str | None
+    bytes: int | None
+    page_count: int | None
+    renderer_version: str | None
+    qa: dict[str, Any] | None
+    attempts: int
+    last_error: str | None
+    rendered_at: datetime | None
+
+
+class ApprovalOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    resume_revision_id: uuid.UUID
+    cover_letter_revision_id: uuid.UUID
+    style_id: uuid.UUID
+    artifacts: list[dict[str, Any]]
+    created_at: datetime
+
+
+class StyleIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    settings: StyleSettings
+    expected_version: int
+
+
+class ApprovalIn(BaseModel):
+    """Exactly what the operator reviewed; the server rejects anything that has changed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int
+    resume_revision_id: uuid.UUID
+    cover_letter_revision_id: uuid.UUID
+    style_id: uuid.UUID
+    # Artifact id -> SHA-256 of each of the four files.
+    artifacts: dict[uuid.UUID, str] = Field(min_length=4, max_length=4)

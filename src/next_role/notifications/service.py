@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from next_role.errors import RateLimitedError
 from next_role.notifications.models import (
+    DOCUMENT_EVENTS,
     NotificationEventType,
     NotificationOutbox,
     NotificationPreferences,
@@ -53,6 +54,24 @@ _MESSAGES: dict[NotificationEventType, dict[str, Any]] = {
         "priority": 3,
         "tags": ["white_check_mark"],
     },
+    NotificationEventType.DOCUMENTS_READY: {
+        "title": "Documents ready",
+        "message": "Draft documents are ready for review.",
+        "priority": 3,
+        "tags": ["page_facing_up"],
+    },
+    NotificationEventType.DOCUMENTS_NEEDS_INPUT: {
+        "title": "Documents need input",
+        "message": "Draft documents need your input.",
+        "priority": 3,
+        "tags": ["memo"],
+    },
+    NotificationEventType.DOCUMENTS_FAILED: {
+        "title": "Documents need attention",
+        "message": "Document generation needs attention.",
+        "priority": 4,
+        "tags": ["warning"],
+    },
 }
 
 
@@ -60,7 +79,7 @@ def get_preferences(session: Session) -> NotificationPreferences:
     """The operator's preferences; defaults (all enabled) if never saved."""
     prefs = session.get(NotificationPreferences, OPERATOR_ID)
     return prefs or NotificationPreferences(
-        operator_id=OPERATOR_ID, review_ready=True, review_postponed_due=True
+        operator_id=OPERATOR_ID, review_ready=True, review_postponed_due=True, documents=True
     )
 
 
@@ -82,6 +101,7 @@ def preferences_out(prefs: NotificationPreferences) -> NotificationPreferencesOu
     return NotificationPreferencesOut(
         review_ready=prefs.review_ready,
         review_postponed_due=prefs.review_postponed_due,
+        documents=prefs.documents,
         updated_at=prefs.updated_at,
     )
 
@@ -95,6 +115,8 @@ def is_enabled(session: Session, event_type: NotificationEventType) -> bool:
             return prefs.review_postponed_due
         case NotificationEventType.INTEGRATION_TEST:
             return True
+        case _:
+            return event_type in DOCUMENT_EVENTS and prefs.documents
 
 
 def enqueue(

@@ -26,6 +26,7 @@ from next_role.api.spa import mount_spa
 from next_role.auth.service import LoginThrottle
 from next_role.config import Settings, get_settings
 from next_role.db import get_engine, get_sessionmaker
+from next_role.documents.storage import LocalArtifactStore
 from next_role.errors import (
     ConflictError,
     DomainError,
@@ -77,6 +78,8 @@ def create_app(
     )
     app.state.requirement_extractor = _build_extractor(settings)
     app.state.login_throttle = LoginThrottle()
+    # Read-only for the API: the renderer writes files (ADR 0007).
+    app.state.artifact_store = LocalArtifactStore(settings.artifact_dir)
 
     @app.middleware("http")
     async def request_context(

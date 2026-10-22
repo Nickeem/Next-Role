@@ -11,6 +11,7 @@ from next_role.notifications.models import OutboxStatus
 class NotificationPreferencesOut(BaseModel):
     review_ready: bool
     review_postponed_due: bool
+    documents: bool
     # Null until the preferences are first saved.
     updated_at: datetime | None
 
@@ -20,6 +21,7 @@ class NotificationPreferencesUpdate(BaseModel):
 
     review_ready: bool | None = None
     review_postponed_due: bool | None = None
+    documents: bool | None = None
 
 
 class DeliveryStatusOut(BaseModel):

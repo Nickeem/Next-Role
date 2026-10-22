@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     generation_max_attempts: int = Field(default=3, ge=1, le=10)
     # How long a worker may hold a generation run before another may take it over.
     generation_lease_seconds: float = Field(default=600.0, ge=30)
+    # Renderer: per-file time limit, and the built print page (frontend/dist-print).
+    render_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    print_bundle_dir: str = "/app/print"
 
     # Built web workspace (frontend/dist). Unset: the API runs without the UI.
     static_dir: str | None = None

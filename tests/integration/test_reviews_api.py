@@ -234,7 +234,12 @@ def test_activity_across_reviews(
 
 def test_notification_preferences(client: TestClient, candidate_id: str) -> None:
     defaults = client.get("/api/v1/notification-preferences").json()
-    assert defaults == {"review_ready": True, "review_postponed_due": True, "updated_at": None}
+    assert defaults == {
+        "review_ready": True,
+        "review_postponed_due": True,
+        "documents": True,
+        "updated_at": None,
+    }
 
     response = client.patch("/api/v1/notification-preferences", json={"review_ready": False})
     assert response.status_code == 200
@@ -242,6 +247,8 @@ def test_notification_preferences(client: TestClient, candidate_id: str) -> None
     assert response.json()["review_postponed_due"] is True
     assert response.json()["updated_at"] is not None
     assert client.get("/api/v1/notification-preferences").json()["review_ready"] is False
+    response = client.patch("/api/v1/notification-preferences", json={"documents": False})
+    assert response.json()["documents"] is False
     bad = client.patch("/api/v1/notification-preferences", json={"ntfy_token": "x"})
     assert bad.status_code == 422
 

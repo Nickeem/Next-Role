@@ -9,6 +9,8 @@ import hashlib
 import os
 import re
 import tempfile
+import time
+from datetime import timedelta
 from pathlib import Path
 from typing import Protocol
 
@@ -25,6 +27,10 @@ class ArtifactStore(Protocol):
     def delete(self, key: str) -> None: ...
 
     def keys(self) -> list[str]: ...
+
+    def age(self, key: str) -> timedelta:
+        """How long ago the file was written."""
+        ...
 
 
 class StorageError(Exception):
@@ -71,6 +77,13 @@ class LocalArtifactStore:
 
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
+
+    def age(self, key: str) -> timedelta:
+        try:
+            written = self._path(key).stat().st_mtime
+        except OSError as exc:
+            raise StorageError(type(exc).__name__) from exc
+        return timedelta(seconds=max(0.0, time.time() - written))
 
     def keys(self) -> list[str]:
         if not self.root.is_dir():
