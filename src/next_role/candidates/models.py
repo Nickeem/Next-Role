@@ -72,6 +72,8 @@ class Candidate(IdMixin, TimestampMixin, Base):
     headline: Mapped[str | None] = mapped_column(String(300))
     summary: Mapped[str | None] = mapped_column(Text)
     location: Mapped[str | None] = mapped_column(String(200))
+    # Validated by next_role.candidates.schemas.CandidateContact.
+    contact: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
     # Validated by next_role.candidates.schemas.CandidatePreferences.
     preferences: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 

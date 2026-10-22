@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     # External (non-self-hosted) providers receive job description text. This flag makes
     # sending data off the server an explicit operator decision.
     llm_allow_external: bool = False
+    # Document drafting sends candidate facts to the provider. The provider type does not prove
+    # where its endpoint runs, so this is required for every provider (ADR 0006). Without it,
+    # documents are assembled deterministically.
+    llm_allow_candidate_data: bool = False
+
+    # Generated documents (ADR 0007). The renderer writes here; the API only reads.
+    artifact_dir: str = "/var/lib/next-role/artifacts"
+    generation_max_attempts: int = Field(default=3, ge=1, le=10)
+    # How long a worker may hold a generation run before another may take it over.
+    generation_lease_seconds: float = Field(default=600.0, ge=30)
 
     # Built web workspace (frontend/dist). Unset: the API runs without the UI.
     static_dir: str | None = None

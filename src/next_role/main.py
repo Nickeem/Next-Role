@@ -16,6 +16,7 @@ from next_role.api.routes import (
     assessments,
     auth,
     candidates,
+    documents,
     health,
     jobs,
     notifications,
@@ -140,6 +141,7 @@ def create_app(
     app.include_router(assessments.router, prefix="/api/v1", dependencies=protected)
     app.include_router(reviews.router, prefix="/api/v1", dependencies=protected)
     app.include_router(notifications.router, prefix="/api/v1", dependencies=protected)
+    app.include_router(documents.router, prefix="/api/v1", dependencies=protected)
     if settings.static_dir:
         # Registered last: the catch-all must not shadow API, health, or docs routes.
         mount_spa(app, Path(settings.static_dir))

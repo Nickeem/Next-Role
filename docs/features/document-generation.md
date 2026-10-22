@@ -92,15 +92,20 @@ document_bundles (candidate × opportunity, run) ─┬─< document_revisions �
 
 | Table | Key fields and invariants |
 | --- | --- |
-| `generation_runs` | `review_id`, `authorization_event_id`, `intent` (`initial`, `regenerate_section`, `verify_revision`), `idempotency_key` (unique), `input_id`, `status`, `stage`, `attempts`, `lease_expires_at`, `next_attempt_at`, redacted `last_error` |
+| `generation_runs` | `review_id`, `authorization_event_id`, `bundle_id` (set once the initial run creates the bundle), `intent` (`initial`, `regenerate_section`, `verify`), `idempotency_key` (unique), `parameters`, `input_id`, `status`, `stage`, `attempts`, `next_attempt_at`, `lease_token`, `lease_expires_at`, redacted `last_error` |
 | `generation_inputs` | Immutable JSONB snapshot, `snapshot_hash`, `policy_version`, prompt and model reference. Rows are never updated. |
-| `document_bundles` | `candidate_id`, `opportunity_id`, `review_id`, `generation_run_id`, `status` (§7), current resume and letter revision IDs, `version` for optimistic locking |
-| `document_revisions` | Immutable: `bundle_id`, `kind` (`resume`, `cover_letter`), `parent_id`, `schema_version`, `content` (JSONB), `content_hash`, `created_by` (`system`, `llm`, `operator`), `verification_status` |
+| `document_bundles` | `candidate_id`, `opportunity_id`, `review_id`, `authorization_event_id` (unique: one bundle per approval), `input_id`, `status` (§7), `drafting_mode` and notes, `version` for optimistic locking |
+| `document_revisions` | Immutable: `bundle_id`, `kind` (`resume`, `cover_letter`), `parent_id`, `schema_version`, `content` (JSONB), `content_hash`, `created_by` (`system`, `llm`, `operator`), `seq` (1, 2, 3… per bundle and kind; the highest is current), `run_id`, `note` |
 | `document_verifications` | `revision_id`, `check_version`, per-claim results, blocking and non-blocking issues, `created_at` |
 | `clarification_requests` | `bundle_id`, `revision_id`, `claim_path`, `question`, `material`, `status` (`open`, `answered`, `dismissed`), answer, disposition |
-| `document_styles` | Immutable: `template_id`, `template_version`, `page_size`, `density`, `accent`, `font`, `section_order`, `style_hash` |
+| `document_styles` | Immutable: `seq` (the highest is current), `template_id`, `template_version`, `settings` (page size, density, accent, font, section order and visibility), `style_hash` |
 | `document_artifacts` | `revision_id`, `style_id`, `format`, `status` (§7), `storage_key`, `sha256`, `bytes`, `page_count`, `renderer_version`, QA result, lease fields |
 | `document_approvals` | Approved revision IDs, style ID, artifact IDs and hashes, verification IDs, the authorization event, actor, `created_at`. Append-only, same trigger as `review_events`. |
+
+There are no "current revision" pointers to keep in sync: the current revision of each kind
+and the current style are the rows with the highest `seq`, which a unique constraint keeps
+unambiguous. A revision's verification status is that of its latest `document_verifications`
+row.
 
 `document_revisions`, `generation_inputs`, `document_styles`, and `document_approvals` are
 append-only. A trigger rejects updates and deletes, as on `review_events`.
@@ -213,7 +218,7 @@ Each lifecycle is a pure transition table, like `review/workflow.py`.
 | --- | --- |
 | Generation run | `queued` → `running` → `completed` / `failed` / `cancelled` |
 | Revision verification | `pending` → `passed` / `blocked` (with per-claim `supported` / `needs_review` / `unsupported`) |
-| Bundle | `drafting` → `needs_clarification` / `ready_for_review` → `approved`; also `withdrawn` (review reopened) and `superseded` (a later bundle replaced it) |
+| Bundle | `needs_input` ⇄ `ready_for_review` → `approved`; any change returns an approved bundle to `needs_input`/`ready_for_review`; `withdrawn` when the review is reopened. Whether drafting is in progress is the run's status, not the bundle's. |
 | Artifact | `pending` → `rendering` → `ready` / `failed`; `superseded` when a newer revision or style replaces it |
 
 - Runs and artifacts are claimed with `FOR UPDATE SKIP LOCKED` in a short transaction that

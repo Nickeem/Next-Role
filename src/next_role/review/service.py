@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
 
+from next_role.documents import runs as document_runs
 from next_role.errors import ConflictError, NotFoundError
 from next_role.matching.models import SuitabilityAssessment
 from next_role.notifications import service as notifications
@@ -130,7 +131,13 @@ def apply_decision(
     request_id: str | None = None,
     now: datetime | None = None,
 ) -> OpportunityReview:
-    """Apply a candidate decision. Raises ConflictError if the version is stale."""
+    """Apply a candidate decision. Raises ConflictError if the version is stale.
+
+    Approving for drafting queues document generation in the same transaction. Leaving
+    ``approved_for_drafting`` revokes that approval: it is refused while drafting is in
+    progress, and otherwise cancels queued work and withdraws the documents.
+    """
+    now = now or datetime.now(UTC)
     review = _lock(session, review_id)
     if review.version != payload.expected_version:
         raise ConflictError(
@@ -148,13 +155,15 @@ def apply_decision(
         workflow.AssessmentSignal(
             tier=assessment.tier, has_blocking_gaps=assessment.has_blocking_gaps
         ),
-        now or datetime.now(UTC),
+        now,
     )
     previous = review.status
+    if previous is ReviewStatus.APPROVED_FOR_DRAFTING:
+        document_runs.revoke(session, review, now)
     review.status = outcome.new_status
     review.postpone_until = outcome.postpone_until
     review.version += 1
-    _append(
+    event = _append(
         session,
         review,
         ReviewEventType(payload.action.value),
@@ -164,6 +173,8 @@ def apply_decision(
         request_id=request_id,
     )
     session.flush()
+    if review.status is ReviewStatus.APPROVED_FOR_DRAFTING:
+        document_runs.queue_initial_run(session, review, event)
     logger.info(
         "review decision recorded",
         extra={
