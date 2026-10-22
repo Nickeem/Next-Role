@@ -297,7 +297,9 @@ def _regenerate(ctx: GenerationContext, run_id: uuid.UUID, token: uuid.UUID) -> 
         verdicts = service.known_verdicts(session, bundle.id)
         bundle_id = bundle.id
 
-    draft = drafting.draft(snapshot, statements, _today(ctx), ctx.provider, ctx.no_llm_reason)
+    draft = drafting.draft(
+        snapshot, statements, _today(ctx), ctx.provider, ctx.no_llm_reason, frozenset({kind})
+    )
     ctx.progress()
     fresh: Document = draft.resume if kind is DocumentKind.RESUME else draft.letter
     document = service.replace_section(base, fresh, section)

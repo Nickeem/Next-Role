@@ -721,8 +721,10 @@ def draft(
     today: date,
     provider: LLMProvider | None,
     no_llm_reason: str | None = None,
+    kinds: frozenset[DocumentKind] = frozenset(DocumentKind),
 ) -> Draft:
-    """Draft both documents. Falls back to verbatim assembly per document on LLM failure."""
+    """Draft the documents in ``kinds`` (both by default) with the LLM; the others, and any
+    the model fails on, are assembled verbatim from facts."""
     if provider is None:
         return deterministic_draft(
             snapshot, statements, today, no_llm_reason or "No language model is configured"
@@ -736,20 +738,22 @@ def draft(
         notes=[f"{provider.name} ({PROMPT_VERSION})"],
         by_llm={DocumentKind.RESUME: False, DocumentKind.COVER_LETTER: False},
     )
-    try:
-        result.resume, extra = llm_resume(provider, snapshot, today)
-        result.questions += extra
-        result.by_llm[DocumentKind.RESUME] = True
-    except (LLMError, ValidationError) as exc:
-        logger.warning("llm resume drafting failed", extra={"error_type": type(exc).__name__})
-        result.notes.append(f"Resume assembled from facts: model failed ({type(exc).__name__})")
-    try:
-        result.letter, extra = llm_letter(provider, snapshot, statements)
-        result.questions += extra
-        result.by_llm[DocumentKind.COVER_LETTER] = True
-    except (LLMError, ValidationError) as exc:
-        logger.warning("llm letter drafting failed", extra={"error_type": type(exc).__name__})
-        result.notes.append(f"Letter assembled from facts: model failed ({type(exc).__name__})")
+    if DocumentKind.RESUME in kinds:
+        try:
+            result.resume, extra = llm_resume(provider, snapshot, today)
+            result.questions += extra
+            result.by_llm[DocumentKind.RESUME] = True
+        except (LLMError, ValidationError) as exc:
+            logger.warning("llm resume drafting failed", extra={"error_type": type(exc).__name__})
+            result.notes.append(f"Resume assembled from facts: model failed ({type(exc).__name__})")
+    if DocumentKind.COVER_LETTER in kinds:
+        try:
+            result.letter, extra = llm_letter(provider, snapshot, statements)
+            result.questions += extra
+            result.by_llm[DocumentKind.COVER_LETTER] = True
+        except (LLMError, ValidationError) as exc:
+            logger.warning("llm letter drafting failed", extra={"error_type": type(exc).__name__})
+            result.notes.append(f"Letter assembled from facts: model failed ({type(exc).__name__})")
     if not any(result.by_llm.values()):
         result.mode = DraftingMode.DETERMINISTIC
     return result

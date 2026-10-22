@@ -242,3 +242,12 @@ def test_llm_output_models_are_strict_json_schemas(kind: str) -> None:
     schema = model.model_json_schema()
     assert schema["additionalProperties"] is False
     assert set(schema["required"]) == set(schema["properties"])
+
+
+def test_drafting_one_kind_never_calls_the_model_for_the_other() -> None:
+    provider = FakeProvider(LETTER_OUTPUT)
+    draft = drafting.draft(
+        snapshot(), {}, TODAY, provider, kinds=frozenset({DocumentKind.COVER_LETTER})
+    )
+    assert len(provider.calls) == 1 and "cover letter" in provider.calls[0][0]
+    assert draft.by_llm == {DocumentKind.RESUME: False, DocumentKind.COVER_LETTER: True}

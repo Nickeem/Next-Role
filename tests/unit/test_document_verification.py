@@ -85,8 +85,10 @@ def test_verbatim_claims_from_confirmed_facts_pass() -> None:
         ("Built REST APIs in Python and Kubernetes", [EXP], "unsupported_skill"),
         ("Built REST APIs in Python for shipment tracking", [uuid.uuid4()], "unknown_evidence"),
         ("Built REST APIs in Python for shipment tracking", [], "no_evidence"),
-        # A fact from another job cannot support a bullet under this one.
+        # A fact from another job cannot support a bullet under this one, even alongside
+        # this job's own fact.
         ("Wrote internal dashboards", [OLD_EXP], "misattributed"),
+        ("Wrote internal dashboards", [EXP, OLD_EXP], "misattributed"),
         # Statements are for cover letters only.
         (
             "Built REST APIs in Python for shipment tracking",
@@ -265,3 +267,40 @@ def test_stale_evidence_detects_retired_edited_and_unconfirmed_facts() -> None:
     assert stale_evidence(claims, edited) == ["c-2"]
     unconfirmed = {f.id: f for f in facts(**{str(EXP): {"confirmed": False}})}
     assert stale_evidence(claims, unconfirmed) == ["item-exp-1", "c-1"]
+
+
+def test_skill_facts_may_be_cited_under_any_entry() -> None:
+    result = _check(
+        _resume([_claim("Built REST APIs in Python for shipment tracking", EXP, SKILL_PY)])
+    )
+    assert _status(result)[0] is ClaimStatus.SUPPORTED
+
+
+def test_a_project_shown_as_current_must_be_current() -> None:
+    from next_role.candidates.models import FactType
+    from next_role.documents.schemas import ResumeDocument
+    from tests.unit.document_fixtures import PROJECT, fact
+
+    project = fact(PROJECT, FactType.PROJECT, "Route planner", is_current=False)
+    doc = ResumeDocument.model_validate(
+        {
+            "header": {"name": "Alex Example"},
+            "sections": [
+                {
+                    "id": "projects",
+                    "type": "projects",
+                    "title": "Projects",
+                    "items": [
+                        {
+                            "id": "proj-1",
+                            "source_fact_id": str(PROJECT),
+                            "name": "Route planner",
+                            "is_current": True,
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    result = _check(doc, fact_map={**FACTS, PROJECT: project})
+    assert _status(result, "item-proj-1") == (ClaimStatus.UNSUPPORTED, ["protected_field"])
