@@ -33,7 +33,7 @@ HTTP client ──► FastAPI routes (api/) ──► domain services ──► 
 | `jobs/` | Manual ingestion, normalization, deduplication, requirement extraction | db, skills, integrations (via protocol) |
 | `matching/` | Pure matching engine, assessment persistence, and retrieval | candidates, jobs, review |
 | `review/` | Candidate decisions: pure state machine (`workflow.py`), reviews, append-only events | matching, notifications |
-| `documents/` | Phase 3 (in progress): generation runs queued on approval, leased claiming, input snapshots, bundles, revisions, styles, artifacts, approvals, template registry, artifact storage | candidates, jobs, matching, review |
+| `documents/` | Phase 3 (in progress): runs queued on approval and claimed with a lease (`runs.py`), input snapshots, fact selection and drafting with an optional LLM (`drafting.py`), pure claim checks (`verification.py`), bundle edits, questions and confirmations (`service.py`), the worker executor (`generation.py`), template registry, artifact storage | candidates, jobs, matching, review, integrations (via protocol) |
 | `notifications/` | Transactional outbox, preferences, `NotificationPublisher` protocol, dispatcher with retries | db |
 | `integrations/ntfy.py` | ntfy HTTP publisher (httpx) | config, notifications |
 | `worker.py` | `python -m next_role.worker`: postponed-review reminders and outbox dispatch | review, notifications, integrations |
@@ -132,6 +132,11 @@ queued runs and withdraws the approval's bundle. Invalid transitions raise
 
 `python -m next_role.worker` runs one loop, every `NEXT_ROLE_WORKER_POLL_SECONDS`:
 
+0. `documents.generation.process_next` executes up to five due generation runs: drafting
+   after an approval, section regeneration, and re-checking edited documents. It runs whether
+   or not ntfy is enabled. A run is claimed with a lease, drafted outside any transaction, and
+   written in one transaction that re-checks the lease and the approval. With no LLM, or
+   without `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA`, documents are assembled verbatim from facts.
 1. `review.service.queue_due_reminders` queues a `review.postponed_due` notification for each
    postponed review whose date has passed. Its `event_key` includes the date, so it is queued
    once per date.
@@ -174,7 +179,9 @@ assessment in SQL so the queue can filter and sort server-side.
 - **Privacy.**
   - Validation errors never echo submitted input.
   - Logs carry IDs and counts only.
-  - Candidate data never goes to an LLM, and external providers need an explicit opt-in.
+  - Candidate facts reach an LLM only for document drafting and checks, and only with
+    `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true` (ADR 0006); contact details never do. External
+    providers also need `NEXT_ROLE_LLM_ALLOW_EXTERNAL=true`.
 - **Web workspace.** Served from the API's origin (`api/spa.py`) with a strict
   Content-Security-Policy (`script-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options:
   DENY`, and `Referrer-Policy: no-referrer` on every response. Job descriptions are rendered
