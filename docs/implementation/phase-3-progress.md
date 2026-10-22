@@ -12,7 +12,7 @@ another session can resume the work without repeating it. The specification is
 | 2 | `feat/document-foundation` | M1 | `documents` module: canonical schemas, tables and migration, run creation in `apply_decision`, reopen guard, authorization re-check, input snapshot, leased claiming, `ArtifactStore`, template registry metadata, candidate `contact` | PR open |
 | 3 | `feat/document-drafting` | M2 | Evidence selection, deterministic assembler, LLM drafter, verification checks 1–6, clarifications, section regeneration, `verify` runs in the worker | PR open |
 | 4 | `feat/document-docx` | M3 | Renderer process and artifact lifecycle, style revisions, DOCX renderer, DOCX QA, download route, approval, `documents.*` notifications | PR open |
-| 5 | `feat/document-pdf` | M3 | Templates (`clean`, `modern-deedy`, `modern`), `print.html`, Playwright PDF renderer, PDF QA, `renderer` Dockerfile target and Compose service, license review | not started |
+| 5 | `feat/document-pdf` | M3 | Templates (`clean`, `modern-deedy`, `modern`), `print.html`, Playwright PDF renderer, PDF QA, `renderer` Dockerfile target and Compose service, license review | PR open |
 | 6 | `feat/document-workspace` | M4 | Bundle page: preview, structured editor, style controls, evidence and issues, clarifications, regenerate, history, downloads, approval | not started |
 | 7 | `chore/phase-3-hardening` | M5 | Restart and failure tests, security and accessibility passes, resource limits, runbook, release checklist | not started |
 
@@ -113,12 +113,33 @@ Facts confirmed in code:
   Approval and notifications moved into this PR because they depend on files settling.
   A test that left a session open blocked the fixture's `TRUNCATE`; tests close sessions.
 
+- PR 5: 330 Python tests pass and 8 PDF tests are skipped outside the renderer image; in the
+  image (`docker run … -m renderer`) all 8 pass: every template in A4 and Letter yields a
+  one-page text PDF that passes QA at the right page width, the browser only loads bundled
+  files (markup and URLs in content stay text), and long content breaks across pages with a
+  length warning and no overflow. 27 frontend tests pass (+2: template rendering escapes
+  markup and applies tokens; letter layout). +1 integration: preview of current and unsaved
+  content and style.
+- PR 5 manual checks: screenshots of the three templates and the letter reviewed (clean
+  rule headings; Modern Deedy uppercase accent headings and tighter spacing; Modern accent
+  name and bar headings). The print page's CSP blocked an injected style tag. On the full
+  Compose stack (`db`, `migrate`, `api`, `worker`, `renderer`, all healthy): approving a
+  review drafted both documents, the renderer produced four files that passed QA, and the
+  PDF downloaded as `alex-example-resume-fabrikam-logistics-r1-DRAFT.pdf`. From inside the
+  renderer, HTTP and raw TCP to the internet failed, the root filesystem was read-only, and
+  the API's artifact mount was read-only.
+- PR 5 license review: no code, styles, fonts or assets were taken from Resume-Matcher; the
+  three templates were written for this project from general layout conventions. Fonts are
+  the Liberation families shipped in the Playwright image (SIL Open Font License 1.1),
+  mapped to Arial and Times New Roman in DOCX; no font files are bundled. Playwright and
+  Chromium are Apache-2.0/BSD; `python-docx` is MIT; `pypdf` is BSD-3-Clause.
+- PR 5 notes: Playwright cannot install Chromium on the development host's OS (Ubuntu
+  26.04), so Chromium runs only in the pinned image. QA compares text with whitespace
+  removed, because Chromium may split a very long word across lines.
+
 ## Known limitations / open issues
 
-- Resume-Matcher's license and any font licenses are reviewed in PR 5, before any design
-  element is adapted.
-- Exact Playwright image version, bundled fonts, and renderer resource limits are chosen in
-  PR 5.
+- The renderer image is large (about 3.8 GB, mostly Chromium and its dependencies).
 - Achievements without a parent job or project are not placed on the resume yet.
 - The deterministic checks cannot detect a claim that strengthens meaning without changing
   values. Only the optional LLM check and the operator's review catch that.

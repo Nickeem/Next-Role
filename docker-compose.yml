@@ -7,6 +7,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-next_role}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks: [default, backend]
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
@@ -30,8 +31,13 @@ services:
     env_file: .env
     environment:
       NEXT_ROLE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-next_role}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-next_role}
+      # Fixed to the volume's mount point, whatever .env says.
+      NEXT_ROLE_ARTIFACT_DIR: /var/lib/next-role/artifacts
     ports:
       - "${API_HOST_PORT:-8000}:8000"
+    # Generated documents; the API only reads them.
+    volumes:
+      - artifacts:/var/lib/next-role/artifacts:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -60,5 +66,44 @@ services:
       retries: 3
       start_period: 30s
 
+  # Renders PDF and DOCX files (ADR 0007). Chromium runs here, isolated: no route to the
+  # internet (internal network with the database only), read-only filesystem, no
+  # capabilities, bounded CPU and memory. Back up the artifacts volume with pgdata.
+  renderer:
+    build:
+      context: .
+      target: renderer
+    env_file: .env
+    environment:
+      NEXT_ROLE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-next_role}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-next_role}
+      NEXT_ROLE_ARTIFACT_DIR: /var/lib/next-role/artifacts
+    volumes:
+      - artifacts:/var/lib/next-role/artifacts
+    networks: [backend]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-m", "next_role.renderer", "--check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  # No external access: only the database and the renderer are attached.
+  backend:
+    internal: true
+
 volumes:
   pgdata:
+  artifacts:

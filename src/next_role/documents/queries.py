@@ -1,11 +1,13 @@
 """Read models for generated documents."""
 
 import uuid
+from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from next_role.documents import artifacts, runs, service, templates
+from next_role.documents import artifacts, display, runs, service, templates
 from next_role.documents.api_schemas import (
     ApprovalOut,
     ArtifactOut,
@@ -13,6 +15,7 @@ from next_role.documents.api_schemas import (
     BundleSummaryOut,
     ClarificationOut,
     JobRefOut,
+    PreviewOut,
     ReviewDocumentsOut,
     RevisionOut,
     RevisionSummaryOut,
@@ -29,8 +32,9 @@ from next_role.documents.models import (
     DocumentVerification,
     GenerationRun,
 )
-from next_role.documents.schemas import StyleSettings
+from next_role.documents.schemas import StyleSettings, parse_document
 from next_role.documents.workflow import BundleStatus
+from next_role.errors import InvalidInputError, NotFoundError
 from next_role.jobs.models import JobOpportunity
 
 
@@ -144,6 +148,47 @@ def bundle_detail(session: Session, bundle_id: uuid.UUID) -> BundleDetailOut:
         artifacts=[ArtifactOut.model_validate(a) for a in artifacts.current(session, bundle.id)],
         approval=ApprovalOut.model_validate(approval) if approval else None,
         approval_current=bundle.status is BundleStatus.APPROVED,
+        preview={
+            kind: display.build(
+                parse_document(revision.content),
+                StyleSettings.model_validate(style.settings) if style else StyleSettings(),
+            )
+            for kind, revision in revisions.items()
+        },
+    )
+
+
+def preview(
+    session: Session,
+    bundle_id: uuid.UUID,
+    kind: DocumentKind,
+    content: dict[str, Any] | None,
+    settings: StyleSettings | None,
+) -> PreviewOut:
+    """Lay out unsaved content or style exactly as the files would be. Nothing is stored."""
+    bundle = service.get_bundle(session, bundle_id)
+    current = service.current_revision(session, bundle.id, kind)
+    if current is None:
+        raise NotFoundError("No document of that kind")
+    style = service.current_style(session, bundle.id)
+    settings = settings or (
+        StyleSettings.model_validate(style.settings) if style else StyleSettings()
+    )
+    if content is None:
+        document = parse_document(current.content)
+    else:
+        try:
+            document = parse_document({**content, "kind": kind.value})
+        except ValidationError as exc:
+            raise InvalidInputError(
+                f"Invalid {kind.value}: {exc.error_count()} problem(s)"
+            ) from exc
+        previous = parse_document(current.content)
+        document = document.model_copy(
+            update={"header": previous.header, "target": previous.target}
+        )
+    return PreviewOut(
+        display=display.build(document, settings), tokens=templates.resolve_tokens(settings)
     )
 
 

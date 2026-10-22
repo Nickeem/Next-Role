@@ -1,0 +1,139 @@
+/* Resume and cover-letter templates. Sizes, colours and spacing come from design tokens
+   (CSS variables set by DocumentView); classes select the heading style. */
+
+.nr-doc {
+  font-family: var(--nr-font);
+  font-size: var(--nr-body);
+  line-height: var(--nr-line);
+  color: var(--nr-text);
+  background: #ffffff;
+  overflow-wrap: anywhere;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.nr-preview {
+  width: var(--nr-page-width);
+  max-width: 100%;
+  min-height: var(--nr-page-height);
+  padding: var(--nr-margin);
+  box-sizing: border-box;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.12), 0 8px 24px rgb(15 23 42 / 0.08);
+}
+
+.nr-doc p,
+.nr-doc ul,
+.nr-doc h1,
+.nr-doc h2 {
+  margin: 0;
+}
+
+.nr-name {
+  font-size: var(--nr-name);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.nr-accent-name .nr-name {
+  color: var(--nr-accent);
+}
+
+.nr-contact {
+  margin-top: 2pt;
+  font-size: var(--nr-small);
+  color: var(--nr-muted);
+}
+
+.nr-section {
+  margin-top: var(--nr-section-gap);
+}
+
+.nr-title {
+  font-size: var(--nr-heading);
+  font-weight: 700;
+  margin-bottom: 3pt;
+  break-after: avoid;
+}
+
+.nr-h-rule .nr-title {
+  border-bottom: 0.75pt solid var(--nr-muted);
+  padding-bottom: 2pt;
+}
+
+.nr-h-caps-accent .nr-title {
+  color: var(--nr-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.nr-h-bar-accent .nr-title {
+  color: var(--nr-accent);
+  border-left: 2.5pt solid var(--nr-accent);
+  padding-left: 5pt;
+}
+
+.nr-entry {
+  margin-top: var(--nr-item-gap);
+}
+
+.nr-entry-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8pt;
+  break-after: avoid;
+}
+
+.nr-entry-title {
+  min-width: 0;
+}
+
+.nr-dates,
+.nr-location {
+  color: var(--nr-muted);
+  font-size: var(--nr-small);
+  white-space: nowrap;
+}
+
+.nr-location {
+  white-space: normal;
+}
+
+.nr-bullets {
+  padding-left: 14pt;
+  margin-top: 1pt;
+}
+
+.nr-bullets li {
+  margin-top: 1pt;
+  break-inside: avoid;
+}
+
+.nr-letter {
+  margin-top: var(--nr-section-gap);
+}
+
+.nr-letter p {
+  margin-bottom: calc(var(--nr-section-gap) * 0.6);
+}
+
+.nr-regarding {
+  font-weight: 700;
+}
+
+.nr-closing {
+  margin-top: calc(var(--nr-section-gap) * 0.4);
+}
+
+.nr-print {
+  width: auto;
+  padding: 0;
+}
+
+@media print {
+  html,
+  body {
+    margin: 0;
+    background: #ffffff;
+  }
+}

@@ -43,6 +43,17 @@ Test layout:
 - `tests/integration/`: the API over a real database (candidates, jobs, assessments,
   including the end-to-end scenario), migrations, and health checks.
 
+### PDF rendering tests
+
+Chromium only runs in the renderer image (Playwright does not support every host OS), so the
+PDF tests are marked `renderer` and skipped elsewhere. Run them in the image:
+
+```bash
+docker build --target renderer -t next-role-renderer .
+docker run --rm --user 0 -v "$PWD/tests:/app/tests:ro" next-role-renderer \
+    sh -c "uv pip install -q --python /opt/venv/bin/python pytest && pytest -m renderer"
+```
+
 ## Quality checks
 
 Run all of these before opening a PR:

@@ -1,6 +1,6 @@
 # ADR 0006: Grounded document generation, and sending candidate data to an LLM
 
-- Status: proposed (Phase 3)
+- Status: accepted (Phase 3)
 - Date: 2026-10-22
 
 ## Context

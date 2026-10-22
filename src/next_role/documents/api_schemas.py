@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from next_role.documents.display import DisplayDocument
 from next_role.documents.models import ArtifactFormat, DocumentKind, DraftingMode, RevisionAuthor
 from next_role.documents.schemas import StyleSettings
 from next_role.documents.workflow import (
@@ -136,6 +137,8 @@ class BundleDetailOut(BundleSummaryOut):
     # The latest approval, and whether it still describes the current files.
     approval: "ApprovalOut | None"
     approval_current: bool
+    # What each current document looks like in the current style (for the preview).
+    preview: dict[DocumentKind, DisplayDocument]
 
 
 class EditIn(BaseModel):
@@ -232,3 +235,18 @@ class ApprovalIn(BaseModel):
     style_id: uuid.UUID
     # Artifact id -> SHA-256 of each of the four files.
     artifacts: dict[uuid.UUID, str] = Field(min_length=4, max_length=4)
+
+
+class PreviewIn(BaseModel):
+    """Unsaved content and/or style to preview; omitted parts use the current ones."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: DocumentKind
+    content: dict[str, Any] | None = None
+    settings: StyleSettings | None = None
+
+
+class PreviewOut(BaseModel):
+    display: DisplayDocument
+    tokens: dict[str, Any]
