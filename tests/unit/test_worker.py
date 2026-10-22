@@ -34,3 +34,16 @@ def test_health_threshold_covers_a_slow_publish() -> None:
     assert worker.health_threshold(settings(30, 10)) == 90
     # A publish that hits a 60 s timeout between heartbeats is not "stuck".
     assert worker.health_threshold(settings(10, 60)) == 140
+
+
+def test_health_threshold_covers_slow_drafting_calls() -> None:
+    settings = Settings(
+        auth_disabled=True,
+        worker_poll_seconds=10,
+        llm_provider="ollama",
+        llm_base_url="http://ollama:11434",
+        llm_model="m",
+        llm_timeout_seconds=60,
+        _env_file=None,
+    )
+    assert worker.health_threshold(settings) == 250

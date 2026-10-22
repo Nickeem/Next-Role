@@ -5,9 +5,30 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from next_role.documents import runs
-from next_role.documents.api_schemas import BundleSummaryOut, ReviewDocumentsOut, RunOut
-from next_role.documents.models import DocumentBundle
+from next_role.documents import runs, service, templates
+from next_role.documents.api_schemas import (
+    BundleDetailOut,
+    BundleSummaryOut,
+    ClarificationOut,
+    JobRefOut,
+    ReviewDocumentsOut,
+    RevisionOut,
+    RevisionSummaryOut,
+    RunOut,
+    StyleOut,
+    TemplatesOut,
+    VerificationOut,
+)
+from next_role.documents.models import (
+    DocumentBundle,
+    DocumentKind,
+    DocumentRevision,
+    DocumentStyle,
+    DocumentVerification,
+    GenerationRun,
+)
+from next_role.documents.schemas import StyleSettings
+from next_role.jobs.models import JobOpportunity
 
 
 def bundle_summary(bundle: DocumentBundle) -> BundleSummaryOut:
@@ -36,4 +57,90 @@ def review_documents(session: Session, review_id: uuid.UUID) -> ReviewDocumentsO
     return ReviewDocumentsOut(
         runs=[RunOut.model_validate(r) for r in review_runs],
         bundles=[bundle_summary(b) for b in bundles],
+    )
+
+
+def verification_out(row: DocumentVerification | None) -> VerificationOut | None:
+    return VerificationOut.model_validate(row) if row is not None else None
+
+
+def revision_summary(session: Session, revision: DocumentRevision) -> RevisionSummaryOut:
+    latest = service.latest_verification(session, revision.id)
+    return RevisionSummaryOut(
+        id=revision.id,
+        kind=revision.kind,
+        seq=revision.seq,
+        created_by=revision.created_by,
+        note=revision.note,
+        created_at=revision.created_at,
+        verification_status=latest.status if latest else None,
+    )
+
+
+def revision_out(session: Session, revision: DocumentRevision) -> RevisionOut:
+    latest = service.latest_verification(session, revision.id)
+    return RevisionOut(
+        **revision_summary(session, revision).model_dump(),
+        bundle_id=revision.bundle_id,
+        parent_id=revision.parent_id,
+        schema_version=revision.schema_version,
+        content=revision.content,
+        content_hash=revision.content_hash,
+        verification=verification_out(latest),
+    )
+
+
+def style_out(style: DocumentStyle) -> StyleOut:
+    settings = StyleSettings.model_validate(style.settings)
+    return StyleOut(
+        id=style.id,
+        seq=style.seq,
+        template_id=style.template_id,
+        template_version=style.template_version,
+        settings=settings,
+        tokens=templates.resolve_tokens(settings),
+        created_at=style.created_at,
+    )
+
+
+def bundle_detail(session: Session, bundle_id: uuid.UUID) -> BundleDetailOut:
+    bundle = service.get_bundle(session, bundle_id)
+    job = session.get(JobOpportunity, bundle.opportunity_id)
+    revisions = service.current_revisions(session, bundle.id)
+    style = service.current_style(session, bundle.id)
+    recent = session.scalars(
+        select(GenerationRun)
+        .where(GenerationRun.bundle_id == bundle.id)
+        .order_by(GenerationRun.created_at.desc())
+        .limit(10)
+    )
+    return BundleDetailOut(
+        **bundle_summary(bundle).model_dump(),
+        job=JobRefOut(
+            id=bundle.opportunity_id,
+            title=job.title if job else None,
+            company=job.company if job else None,
+        ),
+        drafting_notes=list(bundle.drafting_notes),
+        resume=(
+            revision_out(session, revisions[DocumentKind.RESUME])
+            if DocumentKind.RESUME in revisions
+            else None
+        ),
+        cover_letter=(
+            revision_out(session, revisions[DocumentKind.COVER_LETTER])
+            if DocumentKind.COVER_LETTER in revisions
+            else None
+        ),
+        clarifications=[
+            ClarificationOut.model_validate(c) for c in service.clarifications(session, bundle.id)
+        ],
+        style=style_out(style) if style else None,
+        runs=[RunOut.model_validate(r) for r in recent],
+    )
+
+
+def templates_out() -> TemplatesOut:
+    return TemplatesOut(
+        templates=templates.registry(), controls=templates.CONTROLS, defaults=StyleSettings()
     )

@@ -1,7 +1,9 @@
-"""Background worker: queues postponed-review reminders and publishes queued notifications.
+"""Background worker: drafts documents, queues postponed-review reminders, and publishes
+queued notifications.
 
 Run with ``python -m next_role.worker`` (``--once`` for a single cycle). It uses the same
-image and configuration as the API. With ntfy disabled it stays idle.
+image and configuration as the API. Document generation always runs; notification work only
+when ntfy is enabled.
 """
 
 import argparse
@@ -17,8 +19,10 @@ from types import FrameType
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from next_role.config import Settings, get_settings
+from next_role.config import LLMProviderName, Settings, get_settings
 from next_role.db import get_engine, get_sessionmaker
+from next_role.documents.generation import GenerationContext, drafting_provider, process_next
+from next_role.integrations.llm.factory import build_llm_provider
 from next_role.integrations.ntfy import build_ntfy_publisher
 from next_role.logging_config import configure_logging
 from next_role.notifications.dispatcher import DispatchPolicy, dispatch_pending
@@ -43,7 +47,11 @@ def health_threshold(settings: Settings) -> float:
     heartbeat is touched between rows), so allow three polls or two such gaps, at least 60 s.
     """
     poll = settings.worker_poll_seconds
-    return max(60.0, 3 * poll, 2 * (poll + settings.ntfy_timeout_seconds))
+    threshold = max(60.0, 3 * poll, 2 * (poll + settings.ntfy_timeout_seconds))
+    if settings.llm_provider is not LLMProviderName.NONE:
+        # Drafting touches the heartbeat between model calls; each call may retry once.
+        threshold = max(threshold, poll + 4 * settings.llm_timeout_seconds)
+    return threshold
 
 
 def _now() -> datetime:
@@ -56,6 +64,34 @@ def policy_from(settings: Settings) -> DispatchPolicy:
         max_age=timedelta(hours=settings.notification_max_age_hours),
         public_base_url=settings.public_base_url,
     )
+
+
+# Runs executed per cycle, so notifications are not starved by a backlog of drafting.
+MAX_RUNS_PER_CYCLE = 5
+
+
+def generation_context(
+    settings: Settings, factory: sessionmaker[Session], on_progress: Callable[[], None] | None
+) -> GenerationContext:
+    provider, reason = drafting_provider(settings, build_llm_provider(settings))
+    return GenerationContext(
+        factory=factory,
+        provider=provider,
+        no_llm_reason=reason,
+        lease=timedelta(seconds=settings.generation_lease_seconds),
+        max_attempts=settings.generation_max_attempts,
+        now=_now,
+        on_progress=on_progress,
+    )
+
+
+def run_generation(ctx: GenerationContext, limit: int = MAX_RUNS_PER_CYCLE) -> int:
+    """Execute up to ``limit`` due generation runs. Returns how many ran."""
+    done = 0
+    while done < limit and process_next(ctx):
+        done += 1
+        ctx.progress()
+    return done
 
 
 def run_cycle(
@@ -98,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     factory = get_sessionmaker(get_engine(settings.database_url))
     publisher = build_ntfy_publisher(settings)
     policy = policy_from(settings)
+    generation = generation_context(settings, factory, touch_heartbeat)
 
     stop = threading.Event()
 
@@ -109,17 +146,23 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, _stop)
 
     if publisher is None:
-        logger.warning("ntfy is disabled (NEXT_ROLE_NTFY_ENABLED=false); worker is idle")
-    else:
-        logger.info("worker started", extra={"poll_seconds": settings.worker_poll_seconds})
+        logger.warning("ntfy is disabled (NEXT_ROLE_NTFY_ENABLED=false); notifications are idle")
+    logger.info(
+        "worker started",
+        extra={
+            "poll_seconds": settings.worker_poll_seconds,
+            "drafting": "llm" if generation.provider else "deterministic",
+        },
+    )
 
     while not stop.is_set():
-        if publisher is not None:
-            try:
+        try:
+            run_generation(generation)
+            if publisher is not None:
                 run_cycle(factory, publisher, policy, on_progress=touch_heartbeat)
-            except Exception:
-                # A failed cycle (e.g. database restarting) is retried on the next poll.
-                logger.exception("worker cycle failed")
+        except Exception:
+            # A failed cycle (e.g. database restarting) is retried on the next poll.
+            logger.exception("worker cycle failed")
         touch_heartbeat()
         if args.once:
             break
