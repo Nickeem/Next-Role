@@ -374,3 +374,30 @@ test("the approval dialog keeps focus inside and closes on Escape", async () => 
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("dialog")).toBeNull();
 });
+
+test("focus stays in the approval dialog while the approval is sent", async () => {
+  const user = userEvent.setup();
+  const ready = () =>
+    bundle({
+      status: "ready_for_review",
+      clarifications: [],
+      resume: { ...bundle().resume!, verification: { ...bundle().resume!.verification!, status: "passed", claims: [] } },
+    });
+  routes(ready);
+  const base = globalThis.fetch;
+  // The approval request never answers, so the dialog stays in its submitting state.
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+    String(input).endsWith("/approval") ? new Promise<Response>(() => {}) : base(input, init),
+  );
+  renderPage();
+  await user.click(await screen.findByRole("button", { name: "Approve documents" }));
+  const dialog = screen.getByRole("dialog", { name: "Approve these documents?" });
+  await user.click(within(dialog).getByRole("button", { name: "Approve documents" }));
+  expect(within(dialog).getByRole("button", { name: "Approving…" })).toBeDisabled();
+  const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+  expect(cancel).toHaveFocus();
+  await user.tab();
+  expect(cancel).toHaveFocus();
+  await user.tab({ shift: true });
+  expect(cancel).toHaveFocus();
+});

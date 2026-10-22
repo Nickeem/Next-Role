@@ -16,6 +16,7 @@ function size(bytes: number | null): string {
 function ApproveDialog({ onConfirm, onClose }: { onConfirm: () => Promise<boolean>; onClose: () => void }) {
   const titleId = useId();
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
@@ -54,7 +55,7 @@ function ApproveDialog({ onConfirm, onClose }: { onConfirm: () => Promise<boolea
           new approval. Approving does not apply to the job or send anything to the employer.
         </p>
         <div className="dialog__actions">
-          <button type="button" className="btn btn--secondary" onClick={onClose}>
+          <button ref={cancelRef} type="button" className="btn btn--secondary" onClick={onClose}>
             Cancel
           </button>
           <button
@@ -64,6 +65,8 @@ function ApproveDialog({ onConfirm, onClose }: { onConfirm: () => Promise<boolea
             disabled={submitting}
             onClick={async () => {
               setSubmitting(true);
+              // The confirm button is disabled while submitting; keep focus in the dialog.
+              cancelRef.current?.focus();
               if (!(await onConfirm())) setSubmitting(false);
             }}
           >

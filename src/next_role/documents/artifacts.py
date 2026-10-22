@@ -247,10 +247,17 @@ def retry(
 ) -> DocumentArtifact:
     """Render a file again (the operator asked): one that failed, or a ready one whose stored
     file is missing or no longer matches its hash (e.g. after restoring only the database)."""
+    bundle_id = session.scalar(
+        select(DocumentArtifact.bundle_id).where(DocumentArtifact.id == artifact_id)
+    )
+    if bundle_id is None:
+        raise NotFoundError(f"Artifact {artifact_id} not found")
+    # Bundle before artifact, the order bundle-level changes lock in.
+    bundle = session.get(DocumentBundle, bundle_id, with_for_update=True)
     artifact = session.scalar(
         select(DocumentArtifact).where(DocumentArtifact.id == artifact_id).with_for_update()
     )
-    if artifact is None:
+    if artifact is None or bundle is None:
         raise NotFoundError(f"Artifact {artifact_id} not found")
     if artifact.status is ArtifactStatus.READY:
         try:
@@ -263,6 +270,11 @@ def retry(
         artifact.sha256 = None
     elif artifact.status is not ArtifactStatus.FAILED:
         raise ConflictError("Only failed or damaged files can be rendered again")
+    if bundle.status is BundleStatus.APPROVED:
+        # The new file may differ from the approved bytes: the approval no longer covers the
+        # set, so the operator reviews and approves again (the approval stays in history).
+        bundle.status = BundleStatus.READY_FOR_REVIEW
+        bundle.version += 1
     artifact.status = ArtifactStatus.PENDING
     artifact.attempts = 0
     artifact.next_attempt_at = now

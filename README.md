@@ -37,7 +37,8 @@ explicit human approval (see [AGENTS.md](AGENTS.md) and [docs/roadmap.md](docs/r
   role is due) to your own ntfy server, with retries and visible failures.
 - **Web workspace.** Responsive, keyboard-accessible, password-protected.
 
-Out of scope so far: automated job discovery, document generation, and applications.
+Out of scope in Phase 2: document generation (added in Phase 3), automated job discovery, and
+applications.
 
 ## Phase 3: tailored resumes and cover letters
 
@@ -54,6 +55,8 @@ Out of scope so far: automated job discovery, document generation, and applicati
   reordered text.
 - **Review.** Edit wording, answer questions, redraft sections, change the design, then
   approve the exact files. Approval never applies to a job or contacts an employer.
+
+Out of scope so far: automated job discovery and applications.
 
 ## Prerequisites
 

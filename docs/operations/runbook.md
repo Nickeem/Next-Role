@@ -84,7 +84,9 @@ docker compose up -d --wait
 A file lost after restoring only the database can be rendered again: its download reports
 it unavailable, and `POST /api/v1/artifacts/{id}/retry` re-renders a ready file whose stored
 copy is missing or does not match its hash (failed files can also be retried from the
-documents page).
+documents page). If the documents were approved, this returns them to review: the new file
+may not match the approved bytes, so approve them again once it is ready. The earlier
+approval stays in history.
 
 Backups contain personal data: store them encrypted and outside the repository. Test a
 restore before you rely on the backups.
