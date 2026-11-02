@@ -19,9 +19,9 @@ import logging
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from next_role.integrations.llm.base import LLMError, LLMProvider
+from next_role.integrations.llm.base import LLMError, LLMProvider, describe_error
 from next_role.jobs.extraction import RequirementImportance, classify_requirement
 from next_role.jobs.models import ExtractionMethod
 from next_role.jobs.service import ExtractionResult, RequirementExtractor, rule_based_extractor
@@ -44,11 +44,16 @@ requirement per item, without bullet characters. Set importance to "required", "
 
 
 class _LLMRequirement(BaseModel):
+    # Strict JSON schema (required by OpenAI-compatible strict mode): nothing extra.
+    model_config = ConfigDict(extra="forbid")
+
     text: str = Field(min_length=2, max_length=1000)
     importance: Literal["required", "preferred", "unspecified"]
 
 
 class _LLMOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     requirements: list[_LLMRequirement] = Field(max_length=200)
 
 
@@ -76,9 +81,9 @@ class LLMRequirementExtractor:
         except (LLMError, ValidationError) as exc:
             logger.warning(
                 "llm extraction failed; using rules",
-                extra={"provider": self.provider.name, "error_type": type(exc).__name__},
+                extra={"provider": self.provider.name, "error": describe_error(exc)},
             )
-            return self._fallback(description, f"LLM extraction failed ({type(exc).__name__})")
+            return self._fallback(description, f"LLM extraction failed ({describe_error(exc)})")
 
         haystack = _norm(description)
         grounded, dropped = [], 0

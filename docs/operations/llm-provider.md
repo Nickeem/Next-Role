@@ -22,8 +22,10 @@ claim is checked against your facts (see
 | `ollama` | `POST {base}/api/chat` | Self-hosted [Ollama](https://ollama.com). Uses a JSON-schema `format` |
 | `openai_compatible` | `POST {base}/v1/chat/completions` | Any API that supports `response_format: {type: "json_schema", strict: true}`. Treated as external |
 
-Both use `temperature: 0`. The model must support structured (JSON-schema) output. Small
-models that ignore the schema cause retries and then fallbacks.
+Both request `temperature: 0`. If an OpenAI-compatible model rejects that, the request is
+retried once without it and the model's default is used from then on. The model must support
+structured (JSON-schema) output. Small models that ignore the schema cause retries and then
+fallbacks.
 
 ## 2a. Ollama (self-hosted)
 
@@ -124,6 +126,7 @@ Provider errors are reported as an HTTP status or an error type:
 | `... returned HTTP 401` / `403` | Missing or wrong `NEXT_ROLE_LLM_API_KEY` |
 | `... returned HTTP 404` | Wrong base URL (for example a trailing `/v1`), or the model is not pulled (`ollama list`) |
 | `... returned HTTP 400` | The endpoint or model does not support JSON-schema structured output |
+| Worker log `model rejected temperature; using its default` | Informational. The model (for example an OpenAI reasoning model) accepts only its default temperature; Next-Role stops sending `temperature: 0` and output is less repeatable |
 | `ValidationError` in extraction notes, or sections falling back | The model returned JSON that does not match the schema. Use a more capable model |
 | `LLM returned no grounded requirements` | The model paraphrased instead of copying text. Use a more capable model; rules are used meanwhile |
 | Documents "assembled from your facts" although a provider is set | `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA` is not `true` (ADR 0006) |
@@ -131,7 +134,10 @@ Provider errors are reported as an HTTP status or an error type:
 To test connectivity from inside the stack:
 
 ```bash
+# Ollama: answers 200 ("Ollama is running") on its base URL.
 docker compose exec worker python -c "import os, httpx; print(httpx.get(os.environ['NEXT_ROLE_LLM_BASE_URL']).status_code)"
-```
 
-Ollama answers `200` ("Ollama is running") on its base URL.
+# OpenAI-compatible: the bare base URL may return 421 or 404 even when everything works.
+# Ask for the configured model instead: 200 means the key and model name are accepted.
+docker compose exec worker python -c "import os, httpx; r = httpx.get(os.environ['NEXT_ROLE_LLM_BASE_URL'] + '/v1/models/' + os.environ['NEXT_ROLE_LLM_MODEL'], headers={'Authorization': 'Bearer ' + os.environ['NEXT_ROLE_LLM_API_KEY']}); print(r.status_code, r.text[:200])"
+```

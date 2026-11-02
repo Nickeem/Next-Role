@@ -10,7 +10,7 @@ from next_role.integrations.llm.base import LLMError
 from next_role.integrations.llm.factory import build_llm_provider
 from next_role.integrations.llm.http_providers import OllamaProvider, OpenAICompatibleProvider
 from next_role.jobs.extraction import RequirementCategory, RequirementImportance
-from next_role.jobs.llm_extraction import LLMRequirementExtractor
+from next_role.jobs.llm_extraction import OUTPUT_SCHEMA, LLMRequirementExtractor
 from next_role.jobs.models import ExtractionMethod
 
 DESCRIPTION = """We build logistics software.
@@ -133,6 +133,65 @@ def test_openai_compatible_adapter_sends_key_and_schema() -> None:
     assert captured[0].headers["Authorization"] == "Bearer secret"
     assert json.loads(captured[0].content)["response_format"]["type"] == "json_schema"
     assert provider.external is True
+
+
+def _temperature_rejecting_transport(captured: list[httpx.Request]) -> httpx.MockTransport:
+    """Mimics models that accept only the default temperature (HTTP 400, param=temperature)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if "temperature" in json.loads(request.content):
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "message": "Unsupported value: 'temperature' does not support 0.",
+                        "type": "invalid_request_error",
+                        "param": "temperature",
+                        "code": "unsupported_value",
+                    }
+                },
+            )
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    return httpx.MockTransport(handler)
+
+
+def test_openai_compatible_drops_rejected_temperature_and_remembers() -> None:
+    captured: list[httpx.Request] = []
+    provider = OpenAICompatibleProvider(
+        "https://llm.example.invalid", "m", 5, transport=_temperature_rejecting_transport(captured)
+    )
+    assert provider.complete_json("s", "u", {"type": "object"}) == "{}"
+    assert [("temperature" in json.loads(r.content)) for r in captured] == [True, False]
+    # Later calls skip the rejected parameter instead of failing first.
+    assert provider.complete_json("s", "u", {"type": "object"}) == "{}"
+    assert len(captured) == 3 and "temperature" not in json.loads(captured[2].content)
+
+
+def test_openai_compatible_other_400s_are_not_retried() -> None:
+    captured: list[httpx.Request] = []
+    body = {"error": {"message": "bad schema", "param": "response_format"}}
+    provider = OpenAICompatibleProvider(
+        "https://llm.example.invalid", "m", 5, transport=_transport(captured, body, code=400)
+    )
+    with pytest.raises(LLMError, match="HTTP 400"):
+        provider.complete_json("s", "u", {})
+    assert len(captured) == 1
+    assert "temperature" in json.loads(captured[0].content)
+
+
+def test_extraction_notes_include_redacted_error_detail() -> None:
+    provider = FakeProvider(LLMError("fake returned HTTP 400"), LLMError("fake returned HTTP 400"))
+    result = LLMRequirementExtractor(provider)(DESCRIPTION)
+    assert result.method is ExtractionMethod.RULES
+    assert result.notes is not None and "fake returned HTTP 400" in result.notes
+
+
+def test_extraction_schema_is_strict_compatible() -> None:
+    schema = OUTPUT_SCHEMA
+    assert schema["additionalProperties"] is False
+    assert schema["$defs"]["_LLMRequirement"]["additionalProperties"] is False
 
 
 def test_adapter_errors_become_llm_errors() -> None:
