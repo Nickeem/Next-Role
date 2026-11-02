@@ -1,10 +1,13 @@
 """HTTP adapters for Ollama and OpenAI-compatible chat-completions APIs."""
 
+import logging
 from typing import Any
 
 import httpx
 
 from next_role.integrations.llm.base import LLMError
+
+logger = logging.getLogger(__name__)
 
 
 class _HTTPProvider:
@@ -28,6 +31,9 @@ class _HTTPProvider:
     def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         try:
             response = self._client.post(path, json=body)
+            if self._retry_without_temperature(response, body):
+                body = {k: v for k, v in body.items() if k != "temperature"}
+                response = self._client.post(path, json=body)
             response.raise_for_status()
             data: dict[str, Any] = response.json()
         except httpx.HTTPStatusError as exc:
@@ -35,6 +41,9 @@ class _HTTPProvider:
         except (httpx.HTTPError, ValueError) as exc:
             raise LLMError(f"{self.name} request failed: {type(exc).__name__}") from exc
         return data
+
+    def _retry_without_temperature(self, response: httpx.Response, body: dict[str, Any]) -> bool:
+        return False
 
 
 class OllamaProvider(_HTTPProvider):
@@ -71,23 +80,41 @@ class OpenAICompatibleProvider(_HTTPProvider):
 
     name = "openai_compatible"
     external = True
+    # Some models (for example OpenAI reasoning models) accept only the default temperature
+    # and reject any explicit value with HTTP 400. Once seen, temperature is no longer sent.
+    _send_temperature = True
+
+    def _retry_without_temperature(self, response: httpx.Response, body: dict[str, Any]) -> bool:
+        if response.status_code != 400 or "temperature" not in body:
+            return False
+        try:
+            payload = response.json()
+        except ValueError:
+            return False
+        # Any shape other than {"error": {"param": "temperature", ...}} falls through to the
+        # normal HTTP-status handling, which raises LLMError.
+        error = payload.get("error") if isinstance(payload, dict) else None
+        if not isinstance(error, dict) or error.get("param") != "temperature":
+            return False
+        self._send_temperature = False
+        logger.info("model rejected temperature; using its default", extra={"provider": self.name})
+        return True
 
     def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> str:
-        data = self._post(
-            "/v1/chat/completions",
-            {
-                "model": self.model,
-                "temperature": 0,
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {"name": "result", "schema": schema, "strict": True},
-                },
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
+        body: dict[str, Any] = {
+            "model": self.model,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "result", "schema": schema, "strict": True},
             },
-        )
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+        if self._send_temperature:
+            body["temperature"] = 0
+        data = self._post("/v1/chat/completions", body)
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:

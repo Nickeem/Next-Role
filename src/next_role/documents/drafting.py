@@ -49,7 +49,7 @@ from next_role.documents.schemas import (
 from next_role.documents.snapshot import FactSnapshot, InputSnapshot
 from next_role.documents.text import fact_text, sentences, skills_in, year_month
 from next_role.documents.verification import SemanticRequest, Verdict
-from next_role.integrations.llm.base import LLMError, LLMProvider
+from next_role.integrations.llm.base import LLMError, LLMProvider, describe_error
 from next_role.matching.engine import MatchStatus
 from next_role.skills import normalize_skill
 
@@ -744,16 +744,20 @@ def draft(
             result.questions += extra
             result.by_llm[DocumentKind.RESUME] = True
         except (LLMError, ValidationError) as exc:
-            logger.warning("llm resume drafting failed", extra={"error_type": type(exc).__name__})
-            result.notes.append(f"Resume assembled from facts: model failed ({type(exc).__name__})")
+            logger.warning("llm resume drafting failed", extra={"error": describe_error(exc)})
+            result.notes.append(
+                f"Resume assembled from facts: model failed ({describe_error(exc)})"
+            )
     if DocumentKind.COVER_LETTER in kinds:
         try:
             result.letter, extra = llm_letter(provider, snapshot, statements)
             result.questions += extra
             result.by_llm[DocumentKind.COVER_LETTER] = True
         except (LLMError, ValidationError) as exc:
-            logger.warning("llm letter drafting failed", extra={"error_type": type(exc).__name__})
-            result.notes.append(f"Letter assembled from facts: model failed ({type(exc).__name__})")
+            logger.warning("llm letter drafting failed", extra={"error": describe_error(exc)})
+            result.notes.append(
+                f"Letter assembled from facts: model failed ({describe_error(exc)})"
+            )
     if not any(result.by_llm.values()):
         result.mode = DraftingMode.DETERMINISTIC
     return result
