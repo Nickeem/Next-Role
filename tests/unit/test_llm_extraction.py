@@ -94,9 +94,7 @@ def test_no_grounded_requirements_falls_back() -> None:
     assert result.notes and "no grounded" in result.notes
 
 
-def _transport(
-    captured: list[httpx.Request], body: dict[str, Any], code: int = 200
-) -> httpx.MockTransport:
+def _transport(captured: list[httpx.Request], body: Any, code: int = 200) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         return httpx.Response(code, json=body)
@@ -179,6 +177,17 @@ def test_openai_compatible_other_400s_are_not_retried() -> None:
         provider.complete_json("s", "u", {})
     assert len(captured) == 1
     assert "temperature" in json.loads(captured[0].content)
+
+
+@pytest.mark.parametrize("body", [None, [], "text", {"error": None}, {"error": "bad"}])
+def test_openai_compatible_unexpected_400_bodies_become_llm_errors(body: Any) -> None:
+    captured: list[httpx.Request] = []
+    provider = OpenAICompatibleProvider(
+        "https://llm.example.invalid", "m", 5, transport=_transport(captured, body, code=400)
+    )
+    with pytest.raises(LLMError, match="HTTP 400"):
+        provider.complete_json("s", "u", {})
+    assert len(captured) == 1
 
 
 def test_extraction_notes_include_redacted_error_detail() -> None:

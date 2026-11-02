@@ -88,9 +88,12 @@ class OpenAICompatibleProvider(_HTTPProvider):
         if response.status_code != 400 or "temperature" not in body:
             return False
         try:
-            error = response.json().get("error") or {}
+            payload = response.json()
         except ValueError:
             return False
+        # Any shape other than {"error": {"param": "temperature", ...}} falls through to the
+        # normal HTTP-status handling, which raises LLMError.
+        error = payload.get("error") if isinstance(payload, dict) else None
         if not isinstance(error, dict) or error.get("param") != "temperature":
             return False
         self._send_temperature = False
