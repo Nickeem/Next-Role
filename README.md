@@ -114,6 +114,7 @@ All settings are environment variables prefixed with `NEXT_ROLE_`. They are docu
 | [docs/operations/runbook.md](docs/operations/runbook.md) | Deployment, reverse proxy, upgrades, backup/restore, secret rotation, troubleshooting |
 | [docs/operations/phase-2-release-checklist.md](docs/operations/phase-2-release-checklist.md) | Phase 2 sign-off checklist |
 | [docs/operations/ntfy.md](docs/operations/ntfy.md) | ntfy notifications: setup, delivery, troubleshooting |
+| [docs/operations/llm-provider.md](docs/operations/llm-provider.md) | Optional LLM provider (Ollama, OpenAI-compatible): setup, privacy flags, troubleshooting |
 | [docs/features/review-workflow.md](docs/features/review-workflow.md) | Phase 2 specification: review workflow, notifications, workspace |
 | [docs/implementation/phase-2-progress.md](docs/implementation/phase-2-progress.md) | Phase 2 working log |
 | [docs/features/document-generation.md](docs/features/document-generation.md) | Phase 3 specification: drafting, verification, rendering, approval |
