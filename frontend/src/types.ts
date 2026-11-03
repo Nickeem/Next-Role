@@ -203,6 +203,39 @@ export interface NtfyStatus {
   last_error_at: string | null;
 }
 
+export type LLMTask = "extraction" | "resume_drafting" | "letter_drafting" | "semantic_check";
+export type LLMOutcome =
+  | "ok"
+  | "provider_error"
+  | "schema_invalid"
+  | "temperature_dropped"
+  | "deterministic_fallback";
+
+export interface LLMTaskStatus {
+  task: LLMTask;
+  model: string | null;
+  available: boolean;
+  counts_24h: Record<LLMOutcome, number>;
+  counts: Record<LLMOutcome, number>;
+  last_error: {
+    message: string | null;
+    at: string;
+    model: string | null;
+    params: Record<string, unknown> | null;
+  } | null;
+  last_success: { at: string; model: string | null; latency_ms: number | null } | null;
+}
+
+export interface LLMStatus {
+  provider: "none" | "ollama" | "openai_compatible";
+  enabled: boolean;
+  host: string | null;
+  allow_external: boolean;
+  allow_candidate_data: boolean;
+  retention_days: number;
+  tasks: LLMTaskStatus[];
+}
+
 export interface CandidateSummary {
   id: string;
   full_name: string;

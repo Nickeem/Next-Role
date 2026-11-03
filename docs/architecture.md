@@ -38,7 +38,7 @@ HTTP client ──► FastAPI routes (api/) ──► domain services ──► 
 | `integrations/ntfy.py` | ntfy HTTP publisher (httpx) | config, notifications |
 | `renderer.py` | `python -m next_role.renderer` (Compose `renderer` service, Playwright image): claims pending files with a lease, renders PDF (`documents/pdf_renderer.py`, Chromium) and DOCX, checks them, stores them atomically, sweeps orphans | documents |
 | `worker.py` | `python -m next_role.worker`: postponed-review reminders and outbox dispatch | review, notifications, integrations |
-| `integrations/llm/` | `LLMProvider` protocol, Ollama and OpenAI-compatible HTTP adapters | config, httpx |
+| `integrations/llm/` | `LLMProvider` protocol, Ollama and OpenAI-compatible HTTP adapters; `LLMGateway` (`gateway.py`), the one entry point for model calls: validates output, retries, and records each attempt and fallback per task in `llm_call_events`; status aggregation and retention (`status.py`) | config, db, httpx |
 | `auth/` | Operator browser sessions: login, lookup, logout, login throttle | db |
 | `api/` | FastAPI routes, dependencies (database session, API-key or cookie auth with CSRF) | services |
 | `api/spa.py` | Serves the built web workspace with an `index.html` fallback and a strict CSP | — |
@@ -54,6 +54,18 @@ Boundaries:
 - Requirement extraction is injected through the `RequirementExtractor` protocol
   (`jobs/service.py`). The app chooses rule-based or LLM-assisted extraction at startup.
   Domain code never imports a provider SDK.
+- Every LLM call goes through `LLMGateway.complete_model(task, system, user, model_cls)`,
+  for `extraction` (API process), `resume_drafting`, `letter_drafting` and `semantic_check`
+  (worker). It validates the output with Pydantic, retries once on a provider or schema error,
+  and writes an `llm_call_events` row per attempt (`ok`, `provider_error`, `schema_invalid`),
+  per dropped temperature (`temperature_dropped`), and per deterministic fallback, which
+  callers record with `record_fallback`. Rows are written in their own short transaction
+  through the process's session factory, because both processes call models and only the
+  database sees both. A recording failure is logged and never fails the call. Rows hold the
+  model, a redacted error and the request params actually sent (model, temperature, response
+  format type, timeout); never prompts, messages, schemas or responses. The worker deletes
+  rows older than `NEXT_ROLE_LLM_EVENT_RETENTION_DAYS` (30). `GET
+  /api/v1/integrations/llm/status` and the Settings page summarize them per task.
 - Route handlers stay thin: validate input, call a service, serialize the result.
   Transactions are committed by the `get_session` dependency.
 
@@ -73,6 +85,7 @@ opportunity_reviews (candidate × opportunity) ─< review_events
        └─> latest_assessment_id                     └─> assessment_id
 notification_outbox ─> opportunity_reviews (optional)
 notification_preferences (one row per operator)
+llm_call_events        (one row per model attempt or fallback; metadata only, pruned)
 ```
 
 - **`candidate_facts`** is a single table for all fact types, discriminated by `fact_type`.

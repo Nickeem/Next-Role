@@ -90,16 +90,33 @@ If the stack does not start, look for a settings error in the logs:
 | `NEXT_ROLE_LLM_BASE_URL and NEXT_ROLE_LLM_MODEL are required` | Set both when the provider is not `none` |
 | `The openai_compatible provider may send job text to a third party; ...` | Set `NEXT_ROLE_LLM_ALLOW_EXTERNAL=true` |
 
-Then submit a job ([api-examples.md](../api-examples.md)) and check the job in the
-response:
+Then submit a job ([api-examples.md](../api-examples.md)) and open **Settings → Language
+model** in the web workspace. It shows, for each task (requirement extraction, resume
+drafting, cover letter drafting, claim check), the model, how many calls succeeded, failed,
+fell back to deterministic code or had their temperature dropped in the last 24 hours, and
+the last problem with its time. The same data is available from the API:
 
-- `"extraction_method": "llm"` with `extraction_notes` such as `ollama (requirements-v1)`
-  means the model was used.
+```bash
+curl -sS $API/api/v1/integrations/llm/status -H "X-API-Key: $KEY"
+```
+
+The response names the provider and its host only (never the base URL path or the API key),
+`allow_external`, `allow_candidate_data`, and per task: `available` (false for drafting and
+checks without `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA`), `counts_24h` and `counts` (since the
+retention window, `NEXT_ROLE_LLM_EVENT_RETENTION_DAYS`, 30 days) by outcome, `last_error`
+(message, time, model, and the request params sent: model, whether and which temperature,
+response format type, timeout) and `last_success` (time, model, latency). Prompts, job text,
+facts and model output are never stored or returned.
+
+The job in the response also shows what happened:
+
+- `"extraction_method": "llm"` with `extraction_notes` such as
+  `ollama/llama3.1:8b (requirements-v1)` means the model was used.
 - `"extraction_method": "rules"` with notes such as
   `LLM extraction failed (LLMError); used rules` means it fell back. See Troubleshooting.
 
-For documents, a bundle's drafting notes say whether it was drafted by the model or assembled
-from your facts, and why.
+For documents, a bundle's drafting notes say whether it was drafted by the model (for
+example `ollama/llama3.1:8b (drafting-v2)`) or assembled from your facts, and why.
 
 ## Behaviour and limits
 
@@ -126,7 +143,7 @@ Provider errors are reported as an HTTP status or an error type:
 | `... returned HTTP 401` / `403` | Missing or wrong `NEXT_ROLE_LLM_API_KEY` |
 | `... returned HTTP 404` | Wrong base URL (for example a trailing `/v1`), or the model is not pulled (`ollama list`) |
 | `... returned HTTP 400` | The endpoint or model does not support JSON-schema structured output |
-| Worker log `model rejected temperature; using its default` | Informational. The model (for example an OpenAI reasoning model) accepts only its default temperature; Next-Role stops sending `temperature: 0` and output is less repeatable |
+| `temperature_dropped` in the status counts, or log `model rejected temperature; using its default` | Informational. The model (for example an OpenAI reasoning model) accepts only its default temperature; Next-Role stops sending `temperature: 0` until restart and output is less repeatable. Later calls show `temperature_sent: false` in their params |
 | `ValidationError` in extraction notes, or sections falling back | The model returned JSON that does not match the schema. Use a more capable model |
 | `LLM returned no grounded requirements` | The model paraphrased instead of copying text. Use a more capable model; rules are used meanwhile |
 | Documents "assembled from your facts" although a provider is set | `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA` is not `true` (ADR 0006) |

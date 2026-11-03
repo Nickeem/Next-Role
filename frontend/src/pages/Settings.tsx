@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { ErrorState, Loading } from "../components/States";
 import { formatDateTime } from "../labels";
-import type { NotificationPreferences } from "../types";
+import type { LLMStatus, LLMTask, LLMTaskStatus, NotificationPreferences } from "../types";
 import { useLoad } from "../useLoad";
 
 function NtfyCard() {
@@ -84,6 +84,106 @@ function NtfyCard() {
           </button>
           <p className="small" aria-live="polite">
             {message}
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+const TASK_LABELS: Record<LLMTask, string> = {
+  extraction: "Requirement extraction",
+  resume_drafting: "Resume drafting",
+  letter_drafting: "Cover letter drafting",
+  semantic_check: "Claim check",
+};
+
+const PROVIDER_LABELS: Record<LLMStatus["provider"], string> = {
+  none: "None",
+  ollama: "Ollama",
+  openai_compatible: "OpenAI-compatible",
+};
+
+function LLMTaskRow({ row, candidateData }: { row: LLMTaskStatus; candidateData: boolean }) {
+  const c = row.counts_24h;
+  const errors = c.provider_error + c.schema_invalid;
+  return (
+    <div>
+      <dt>{TASK_LABELS[row.task]}</dt>
+      <dd>
+        {!row.available ? (
+          <span className="muted">
+            {candidateData
+              ? "Not used"
+              : "Not used: set NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA to send candidate facts"}
+          </span>
+        ) : (
+          <>
+            <span>{row.model}</span>
+            <span className="muted small">
+              {" "}
+              · 24 h: {c.ok} ok, {errors} failed, {c.deterministic_fallback} fell back
+              {c.temperature_dropped > 0 && `, ${c.temperature_dropped} temperature dropped`}
+            </span>
+          </>
+        )}
+        {row.last_error && (
+          <div className="small">
+            Last problem: {row.last_error.message ?? "Unknown error"}
+            <span className="muted"> · {formatDateTime(row.last_error.at)}</span>
+          </div>
+        )}
+        {row.last_success && (
+          <div className="muted small">
+            Last success {formatDateTime(row.last_success.at)}
+            {row.last_success.latency_ms !== null && ` in ${row.last_success.latency_ms} ms`}
+          </div>
+        )}
+      </dd>
+    </div>
+  );
+}
+
+function LLMCard() {
+  const status = useLoad(() => api.llmStatus(), "llm");
+  const data = status.data;
+  return (
+    <section className="card" aria-labelledby="llm-title">
+      <h2 id="llm-title" className="card__title">
+        Language model
+      </h2>
+      {status.loading && !data && <Loading />}
+      {status.error && <ErrorState error={status.error} onRetry={status.reload} />}
+      {data && !data.enabled && (
+        <p className="muted">
+          No language model is configured (NEXT_ROLE_LLM_PROVIDER=none). Requirements are extracted
+          by rules and documents are assembled from your facts.
+        </p>
+      )}
+      {data && data.enabled && (
+        <>
+          <dl className="meta">
+            <div>
+              <dt>Provider</dt>
+              <dd>
+                {PROVIDER_LABELS[data.provider]}
+                {data.host && <span className="muted small"> · {data.host}</span>}
+              </dd>
+            </div>
+            <div>
+              <dt>Data sent</dt>
+              <dd>
+                {data.allow_candidate_data ? "Job text and candidate facts" : "Job text only"}
+                {data.allow_external && <span className="muted small"> · external allowed</span>}
+              </dd>
+            </div>
+            {data.tasks.map((row) => (
+              <LLMTaskRow key={row.task} row={row} candidateData={data.allow_candidate_data} />
+            ))}
+          </dl>
+          <p className="muted small">
+            Counts cover the last 24 hours; events are kept for {data.retention_days} days. Nothing
+            sent to or returned by the model is stored here.
           </p>
         </>
       )}
@@ -181,6 +281,7 @@ export function Settings({ onLogout }: { onLogout: () => Promise<void> }) {
       )}
       <div className="settings-grid">
         <NtfyCard />
+        <LLMCard />
         <PreferencesCard />
       </div>
     </>

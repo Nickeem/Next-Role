@@ -22,7 +22,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from next_role.config import LLMProviderName, Settings, get_settings
 from next_role.db import get_engine, get_sessionmaker
 from next_role.documents.generation import GenerationContext, drafting_provider, process_next
+from next_role.integrations.llm import status as llm_status
 from next_role.integrations.llm.factory import build_llm_provider
+from next_role.integrations.llm.gateway import LLMGateway, SessionRecorder
 from next_role.integrations.ntfy import build_ntfy_publisher
 from next_role.logging_config import configure_logging
 from next_role.notifications.dispatcher import DispatchPolicy, dispatch_pending
@@ -76,7 +78,7 @@ def generation_context(
     provider, reason = drafting_provider(settings, build_llm_provider(settings))
     return GenerationContext(
         factory=factory,
-        provider=provider,
+        llm=LLMGateway(provider, SessionRecorder(factory)) if provider else None,
         no_llm_reason=reason,
         lease=timedelta(seconds=settings.generation_lease_seconds),
         max_attempts=settings.generation_max_attempts,
@@ -92,6 +94,17 @@ def run_generation(ctx: GenerationContext, limit: int = MAX_RUNS_PER_CYCLE) -> i
         done += 1
         ctx.progress()
     return done
+
+
+def prune_llm_events(
+    factory: sessionmaker[Session], retention_days: int, now: Callable[[], datetime] = _now
+) -> int:
+    """Delete LLM call events older than the retention window. Returns how many."""
+    with factory.begin() as session:
+        deleted = llm_status.prune(session, now() - timedelta(days=retention_days))
+    if deleted:
+        logger.info("pruned llm call events", extra={"deleted": deleted})
+    return deleted
 
 
 def run_cycle(
@@ -151,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         "worker started",
         extra={
             "poll_seconds": settings.worker_poll_seconds,
-            "drafting": "llm" if generation.provider else "deterministic",
+            "drafting": "llm" if generation.llm else "deterministic",
         },
     )
 
@@ -160,6 +173,8 @@ def main(argv: list[str] | None = None) -> int:
             run_generation(generation)
             if publisher is not None:
                 run_cycle(factory, publisher, policy, on_progress=touch_heartbeat)
+            # Last, so a pruning failure never delays drafting or notifications.
+            prune_llm_events(factory, settings.llm_event_retention_days)
         except Exception:
             # A failed cycle (e.g. database restarting) is retried on the next poll.
             logger.exception("worker cycle failed")

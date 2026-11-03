@@ -35,6 +35,8 @@ from next_role.documents.workflow import (
     RunIntent,
 )
 from next_role.integrations.llm.base import LLMError, LLMProvider
+from next_role.integrations.llm.gateway import LLMGateway
+from next_role.integrations.llm.models import LLMTask
 from next_role.notifications import service as notifications
 from next_role.notifications.models import NotificationEventType
 
@@ -55,7 +57,7 @@ class RevisionChangedError(Exception):
 class GenerationContext:
     factory: sessionmaker[Session]
     # None when no provider is configured or candidate data may not be sent to it.
-    provider: LLMProvider | None
+    llm: LLMGateway | None
     no_llm_reason: str | None
     lease: timedelta
     max_attempts: int
@@ -173,18 +175,22 @@ def check(
     raise_on_llm_error: bool = False,
 ) -> Checked:
     vctx = service.verification_context(
-        facts, statements, document.target, ctx.provider is not None, verdicts
+        facts, statements, document.target, ctx.llm is not None, verdicts
     )
     result = verify(document, vctx)
     requests = semantic_requests(result, document, vctx)
-    if not requests or ctx.provider is None:
+    if not requests or ctx.llm is None:
         return Checked(result)
     try:
-        new = drafting.judge(ctx.provider, requests)
+        new = drafting.judge(ctx.llm, requests)
     except (LLMError, ValidationError) as exc:
         if raise_on_llm_error:
             raise
         logger.warning("semantic check failed", extra={"error_type": type(exc).__name__})
+        # Claims stay "awaiting check" and a verify run is queued: deterministic results only.
+        ctx.llm.record_fallback(
+            LLMTask.SEMANTIC_CHECK, f"semantic check deferred ({type(exc).__name__})"
+        )
         return Checked(result, type(exc).__name__)
     ctx.progress()
     vctx = service.verification_context(
@@ -228,7 +234,7 @@ def _initial(ctx: GenerationContext, run_id: uuid.UUID, token: uuid.UUID) -> Non
         event = runs.check_authorization(session, run)
         snapshot = build_snapshot(session, event.assessment_id)
 
-    draft = drafting.draft(snapshot, {}, _today(ctx), ctx.provider, ctx.no_llm_reason)
+    draft = drafting.draft(snapshot, {}, _today(ctx), ctx.llm, ctx.no_llm_reason)
     ctx.progress()
     facts = _facts(snapshot)
     checked = {
@@ -313,7 +319,7 @@ def _regenerate(ctx: GenerationContext, run_id: uuid.UUID, token: uuid.UUID) -> 
         snapshot,
         statements,
         _today(ctx),
-        ctx.provider,
+        ctx.llm,
         ctx.no_llm_reason,
         frozenset({kind}),
         asked=asked,

@@ -15,10 +15,13 @@ from next_role.candidates.models import CandidateFact, VerificationStatus
 from next_role.documents import generation, runs
 from next_role.documents.models import DocumentBundle, DocumentRevision, GenerationRun
 from next_role.documents.workflow import RunStatus
-from next_role.integrations.llm.base import LLMProvider
+from next_role.integrations.llm.base import Completion, LLMError, LLMProvider
+from next_role.integrations.llm.gateway import LLMGateway, SessionRecorder
+from next_role.integrations.llm.models import LLMCallEvent, LLMOutcome, LLMTask
 from next_role.review.models import OpportunityReview
 from tests.integration.test_document_runs import _approve, _decide
 from tests.integration.test_review_workflow import _assess, _candidate, _job, _review
+from tests.llm_fakes import completion
 
 
 def _ctx(
@@ -26,7 +29,7 @@ def _ctx(
 ) -> generation.GenerationContext:
     return generation.GenerationContext(
         factory=factory,
-        provider=provider,
+        llm=LLMGateway(provider, SessionRecorder(factory)) if provider else None,
         no_llm_reason=None if provider else "No language model is configured",
         lease=timedelta(minutes=10),
         max_attempts=3,
@@ -311,12 +314,16 @@ class _FakeLLM:
     """Writes bullets verbatim from the first responsibility and judges everything entailed."""
 
     name = "fake"
+    model = "fake-model"
     external = False
 
     def __init__(self) -> None:
         self.judged = 0
 
-    def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> str:
+    def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> Completion:
+        return completion(self.text(system, user, schema))
+
+    def text(self, system: str, user: str, schema: dict[str, Any]) -> str:
         if "<claims>" in user:
             self.judged += 1
             payload = json.loads(user.split("<claims>\n", 1)[1].rsplit("\n</claims>", 1)[0])
@@ -396,8 +403,8 @@ class _RepeatingLLM(_FakeLLM):
         self.calls = 0
         self.prompts: list[str] = []
 
-    def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> str:
-        out = json.loads(super().complete_json(system, user, schema))
+    def text(self, system: str, user: str, schema: dict[str, Any]) -> str:
+        out = json.loads(super().text(system, user, schema))
         if "<claims>" in user:
             return json.dumps(out)
         self.calls += 1
@@ -444,3 +451,33 @@ def test_repeated_model_questions_are_asked_once(
     assert _drain(_ctx(session_factory, llm)) == 1
     assert [q["status"] for q in asked()] == ["dismissed"]
     assert llm.QUESTION in llm.prompts[-1].split("<asked_questions>", 1)[1]
+
+
+class _JudgeDownLLM(_FakeLLM):
+    def text(self, system: str, user: str, schema: dict[str, Any]) -> str:
+        if "<claims>" in user:
+            raise LLMError("fake returned HTTP 503")
+        return super().text(system, user, schema)
+
+
+def test_calls_are_recorded_and_a_failed_check_records_a_fallback(
+    session_factory: sessionmaker[Session], review: dict[str, Any]
+) -> None:
+    _approve(session_factory, review["id"])
+    # The first draft, then the verify run its deferred check queued. That run raises (it is
+    # retried later) instead of falling back, so only the first run records fallbacks.
+    assert _drain(_ctx(session_factory, _JudgeDownLLM())) == 2
+    with session_factory() as s:
+        events = s.scalars(select(LLMCallEvent).order_by(LLMCallEvent.created_at)).all()
+    by_task = {(e.task, e.outcome) for e in events}
+    assert (LLMTask.RESUME_DRAFTING, LLMOutcome.OK) in by_task
+    assert (LLMTask.LETTER_DRAFTING, LLMOutcome.OK) in by_task
+    assert (LLMTask.SEMANTIC_CHECK, LLMOutcome.PROVIDER_ERROR) in by_task
+    # One deferred check per document.
+    fallbacks = [e for e in events if e.outcome is LLMOutcome.DETERMINISTIC_FALLBACK]
+    assert [(e.task, e.error) for e in fallbacks] == [
+        (LLMTask.SEMANTIC_CHECK, "semantic check deferred (LLMError)")
+    ] * 2
+    with session_factory() as s:
+        bundle = s.scalars(select(DocumentBundle)).one()
+    assert bundle.drafting_notes[0] == "fake/fake-model (drafting-v2)"
