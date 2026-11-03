@@ -22,7 +22,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from next_role.integrations.llm.base import LLMError, LLMProvider, describe_error
-from next_role.jobs.extraction import RequirementImportance, classify_requirement
+from next_role.jobs.extraction import (
+    RequirementImportance,
+    classify_requirement,
+    dedupe_requirements,
+)
 from next_role.jobs.models import ExtractionMethod
 from next_role.jobs.service import ExtractionResult, RequirementExtractor, rule_based_extractor
 
@@ -95,17 +99,19 @@ class LLMRequirementExtractor:
         if not grounded:
             return self._fallback(description, "LLM returned no grounded requirements")
 
+        classified = [
+            classify_requirement(item.text, RequirementImportance(item.importance))
+            for item in grounded
+        ]
+        # Postings often repeat a requirement (e.g. under "Requirements" and "About you").
+        requirements = dedupe_requirements(classified)
+        merged = len(classified) - len(requirements)
         notes = f"{self.provider.name} ({PROMPT_VERSION})"
         if dropped:
             notes += f"; dropped {dropped} statement(s) not found in the description"
-        return ExtractionResult(
-            [
-                classify_requirement(item.text, RequirementImportance(item.importance))
-                for item in grounded
-            ],
-            ExtractionMethod.LLM,
-            notes,
-        )
+        if merged:
+            notes += f"; merged {merged} repeated statement(s)"
+        return ExtractionResult(requirements, ExtractionMethod.LLM, notes)
 
     def _call_llm(self, description: str) -> _LLMOutput:
         user = f"<job_description>\n{description}\n</job_description>"

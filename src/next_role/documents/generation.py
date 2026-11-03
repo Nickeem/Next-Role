@@ -301,6 +301,7 @@ def _regenerate(ctx: GenerationContext, run_id: uuid.UUID, token: uuid.UUID) -> 
         section = str(run.parameters["section"])
         snapshot = build_snapshot(session, event.assessment_id)
         statements = service.statements(session, bundle.id)
+        asked = service.question_texts(session, bundle.id)
         current = service.current_revision(session, bundle.id, kind)
         if current is None:  # pragma: no cover - bundles are created with both documents
             raise RevisionChangedError(str(run_id))
@@ -309,7 +310,13 @@ def _regenerate(ctx: GenerationContext, run_id: uuid.UUID, token: uuid.UUID) -> 
         bundle_id = bundle.id
 
     draft = drafting.draft(
-        snapshot, statements, _today(ctx), ctx.provider, ctx.no_llm_reason, frozenset({kind})
+        snapshot,
+        statements,
+        _today(ctx),
+        ctx.provider,
+        ctx.no_llm_reason,
+        frozenset({kind}),
+        asked=asked,
     )
     ctx.progress()
     fresh: Document = draft.resume if kind is DocumentKind.RESUME else draft.letter

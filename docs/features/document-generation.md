@@ -78,6 +78,14 @@ hurts text extraction. Open **material** questions and blocking issues prevent a
 candidate can dismiss a non-material question and leave the content out. The dismissal is
 recorded.
 
+A question is asked at most once per bundle, whatever its status. Questions come from rules
+(missing requirement evidence, missing metrics, motivation) and, when drafting uses a model,
+from the model. The model is shown every question already asked and the rule-based ones, and
+is told not to repeat them. As a safety net, a new question is dropped if its key or its
+wording (ignoring case, punctuation and spacing) matches one the bundle already has. A model
+question's key depends on its topic, not on the document, so the resume and the letter share
+it. A job requirement repeated in the posting is merged at extraction and asked about once.
+
 ## 4. Data model
 
 ```
