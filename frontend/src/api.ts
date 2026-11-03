@@ -22,6 +22,7 @@ import type {
   ActivityItem,
   CandidateSummary,
   DecisionInput,
+  LLMStatus,
   NotificationPreferences,
   NtfyStatus,
   Page,
@@ -144,6 +145,7 @@ export const api = {
   updatePreferences: (update: Partial<Omit<NotificationPreferences, "updated_at">>) =>
     request<NotificationPreferences>("PATCH", "/notification-preferences", update),
   ntfyStatus: () => request<NtfyStatus>("GET", "/integrations/ntfy/status"),
+  llmStatus: () => request<LLMStatus>("GET", "/integrations/llm/status"),
   ntfyTest: () => request<{ outbox_id: string; status: string }>("POST", "/integrations/ntfy/test"),
 
   // Documents (Phase 3)
