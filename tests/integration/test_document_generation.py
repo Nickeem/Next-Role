@@ -383,3 +383,64 @@ def test_drafting_provider_requires_the_candidate_data_opt_in(settings: Any) -> 
     allowed = settings.model_copy(update={"llm_allow_candidate_data": True})
     assert generation.drafting_provider(allowed, llm) == (llm, None)
     assert generation.drafting_provider(allowed, None)[0] is None
+
+
+class _RepeatingLLM(_FakeLLM):
+    """Asks the same question from both documents, with a topic reworded on every call, as
+    a model at temperature 1 does."""
+
+    QUESTION = "Have you led an on-call rotation?"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+        self.prompts: list[str] = []
+
+    def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> str:
+        out = json.loads(super().complete_json(system, user, schema))
+        if "<claims>" in user:
+            return json.dumps(out)
+        self.calls += 1
+        self.prompts.append(user)
+        question = {"topic": f"on-call (wording {self.calls})", "question": self.QUESTION}
+        out["questions"] = [{**question, "material": False}]
+        return json.dumps(out)
+
+
+def test_repeated_model_questions_are_asked_once(
+    client: TestClient, session_factory: sessionmaker[Session], review: dict[str, Any]
+) -> None:
+    llm = _RepeatingLLM()
+    _approve(session_factory, review["id"])
+    assert _drain(_ctx(session_factory, llm)) == 1
+    [summary] = client.get(f"/api/v1/reviews/{review['id']}/documents").json()["bundles"]
+    detail = client.get(f"/api/v1/bundles/{summary['id']}").json()
+
+    def asked() -> list[dict[str, Any]]:
+        bundle = client.get(f"/api/v1/bundles/{summary['id']}").json()
+        return [q for q in bundle["clarifications"] if q["question"] == llm.QUESTION]
+
+    # The resume and the letter both asked it; it is stored once.
+    [question] = asked()
+    dismissed = client.post(
+        f"/api/v1/clarifications/{question['id']}/dismiss",
+        json={"reason": "Not relevant", "expected_version": detail["version"]},
+    )
+    assert dismissed.status_code == 200, dismissed.text
+
+    # Regenerating asks it again under a new topic; the dismissed question is not reopened,
+    # and the model was told it had already been asked.
+    version = client.get(f"/api/v1/bundles/{summary['id']}").json()["version"]
+    response = client.post(
+        f"/api/v1/bundles/{summary['id']}/regenerations",
+        json={
+            "kind": "resume",
+            "section": "skills",
+            "expected_version": version,
+            "idempotency_key": "regen-repeat-1",
+        },
+    )
+    assert response.status_code == 202, response.text
+    assert _drain(_ctx(session_factory, llm)) == 1
+    assert [q["status"] for q in asked()] == ["dismissed"]
+    assert llm.QUESTION in llm.prompts[-1].split("<asked_questions>", 1)[1]

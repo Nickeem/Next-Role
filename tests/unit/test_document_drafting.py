@@ -1,6 +1,7 @@
 """Drafting: deterministic assembly, questions, LLM drafting with fallback, and prompts."""
 
 import json
+import uuid
 from datetime import date
 from typing import Any
 
@@ -251,3 +252,62 @@ def test_drafting_one_kind_never_calls_the_model_for_the_other() -> None:
     )
     assert len(provider.calls) == 1 and "cover letter" in provider.calls[0][0]
     assert draft.by_llm == {DocumentKind.RESUME: False, DocumentKind.COVER_LETTER: True}
+
+
+# --- Duplicate questions -------------------------------------------------------------------
+
+
+def _with_repeated_requirement() -> Any:
+    snap = snapshot()
+    k8s = next(r for r in snap.job.requirements if r.id == REQ_K8S)
+    repeat = k8s.model_copy(
+        update={"id": uuid.uuid4(), "position": 2, "text": "experience operating kubernetes."}
+    )
+    return snap.model_copy(
+        update={
+            "job": snap.job.model_copy(update={"requirements": [*snap.job.requirements, repeat]})
+        }
+    )
+
+
+def test_a_repeated_requirement_is_asked_about_once() -> None:
+    draft = drafting.draft(_with_repeated_requirement(), {}, TODAY, None)
+    requirement_keys = [q.key for q in draft.questions if q.key.startswith("requirement:")]
+    assert requirement_keys == [f"requirement:{REQ_K8S}"]
+
+
+def test_model_sees_already_asked_and_rule_questions() -> None:
+    provider = FakeProvider(_resume_output(), LETTER_OUTPUT)
+    drafting.draft(snapshot(), {}, TODAY, provider, asked=["Earlier question?"])
+    resume_user, letter_user = (user for _, user in provider.calls)
+    for system, _ in provider.calls:
+        assert "<asked_questions>" in system
+    assert "Earlier question?" in resume_user
+    assert "Experience operating Kubernetes" in resume_user  # the rule-based gap question
+    # The letter call also sees the question the resume call just asked.
+    assert "Have you run Kubernetes?" in letter_user
+
+
+def test_same_model_topic_from_both_documents_shares_one_key() -> None:
+    question = {"topic": "Kubernetes", "question": "Have you run Kubernetes?", "material": True}
+    letter = {**LETTER_OUTPUT, "questions": [{**question, "topic": " kubernetes "}]}
+    provider = FakeProvider(_resume_output(questions=[question]), letter)
+    draft = drafting.draft(snapshot(), {}, TODAY, provider)
+    llm_keys = {q.key for q in draft.questions if q.key.startswith("llm:")}
+    assert len(llm_keys) == 1 and not any(":resume:" in k for k in llm_keys)
+
+
+def test_unique_questions_drops_repeated_wording() -> None:
+    def q(key: str, text: str) -> drafting.Question:
+        return drafting.Question(key, DocumentKind.RESUME, text, True, "career_fact")
+
+    kept = drafting.unique_questions(
+        [
+            q("llm:a", "Have you run Kubernetes?"),
+            q("llm:b", "have you run  kubernetes"),
+            q("llm:c", "Already asked."),
+            q("llm:d", "Something new?"),
+        ],
+        existing=["ALREADY ASKED"],
+    )
+    assert [k.key for k in kept] == ["llm:a", "llm:d"]

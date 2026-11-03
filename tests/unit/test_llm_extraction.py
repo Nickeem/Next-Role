@@ -219,3 +219,17 @@ def test_factory() -> None:
         **base, llm_provider=LLMProviderName.OLLAMA, llm_base_url="http://o:11434", llm_model="m"
     )
     assert isinstance(build_llm_provider(ollama), OllamaProvider)
+
+
+def test_repeated_statements_are_merged() -> None:
+    description = DESCRIPTION + "About you:\n- 5+ years of python experience.\n"
+    provider = FakeProvider(
+        _json(
+            ("5+ years of Python experience", "required"),
+            ("5+ years of python experience.", "required"),
+        )
+    )
+    result = LLMRequirementExtractor(provider)(description)
+    assert result.method is ExtractionMethod.LLM
+    assert [r.text for r in result.requirements] == ["5+ years of Python experience"]
+    assert result.notes is not None and "merged 1 repeated statement" in result.notes

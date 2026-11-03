@@ -284,20 +284,26 @@ def extract_requirements(description: str) -> list[ExtractedRequirement]:
     close_section()
 
     if saw_requirement_header:
-        return _dedupe(sectioned)
+        return dedupe_requirements(sectioned)
     if loose_bullets:
-        return _dedupe([classify_requirement(b) for b in loose_bullets])
+        return dedupe_requirements([classify_requirement(b) for b in loose_bullets])
     sentences = re.split(r"(?<=[.!?;])\s+|\n+", description)
-    return _dedupe(
+    return dedupe_requirements(
         [classify_requirement(s) for s in sentences if s.strip() and _looks_like_requirement(s)]
     )
 
 
-def _dedupe(items: list[ExtractedRequirement]) -> list[ExtractedRequirement]:
+def requirement_key(text: str) -> str:
+    """Case-, punctuation- and whitespace-insensitive form used to spot repeated requirements."""
+    return re.sub(r"\W+", " ", text.lower()).strip()
+
+
+def dedupe_requirements(items: list[ExtractedRequirement]) -> list[ExtractedRequirement]:
+    """Keep the first of requirements that differ only in case, punctuation or spacing."""
     seen: set[str] = set()
     result: list[ExtractedRequirement] = []
     for item in items:
-        key = re.sub(r"\W+", " ", item.text.lower()).strip()
+        key = requirement_key(item.text)
         if key and key not in seen:
             seen.add(key)
             result.append(item)

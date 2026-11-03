@@ -24,7 +24,7 @@ from next_role.candidates.models import (
     VerificationStatus,
 )
 from next_role.documents import artifacts, runs, templates
-from next_role.documents.drafting import Question, connective_templates
+from next_role.documents.drafting import Question, connective_templates, unique_questions
 from next_role.documents.models import (
     ClarificationRequest,
     DocumentApproval,
@@ -175,6 +175,17 @@ def clarifications(session: Session, bundle_id: uuid.UUID) -> list[Clarification
     )
 
 
+def question_texts(session: Session, bundle_id: uuid.UUID) -> list[str]:
+    """Every question already asked on the bundle, open or resolved."""
+    return list(
+        session.scalars(
+            select(ClarificationRequest.question)
+            .where(ClarificationRequest.bundle_id == bundle_id)
+            .order_by(ClarificationRequest.created_at, ClarificationRequest.key)
+        )
+    )
+
+
 def statements(session: Session, bundle_id: uuid.UUID) -> dict[str, str]:
     """Letter-only answers, by the evidence id cover-letter claims cite them with."""
     return {
@@ -287,8 +298,9 @@ def record_verification(
 
 
 def add_questions(session: Session, bundle: DocumentBundle, questions: list[Question]) -> None:
-    """Add new questions; one already asked under the same key (any status) is kept as is."""
-    for q in questions:
+    """Add new questions. One already asked under the same key, or with the same wording
+    (ignoring case, punctuation and spacing), in any status, is kept as is."""
+    for q in unique_questions(questions, question_texts(session, bundle.id)):
         session.execute(
             insert(ClarificationRequest)
             .values(
