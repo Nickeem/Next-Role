@@ -154,11 +154,18 @@ class LLMGateway:
         )
         try:
             self._recorder.record(event)
-        except Exception:
-            # Recording must never break the call it describes (AGENTS.md section 3).
-            logger.exception(
+        except Exception as exc:
+            # Recording must never break the call it describes (AGENTS.md section 3). Log the
+            # error type only, without a traceback: this often runs while a ValidationError is
+            # being handled, and the chained exception would carry the model's output (which
+            # can quote candidate facts) into the logs.
+            logger.warning(
                 "failed to record llm call event",
-                extra={"task": task.value, "outcome": outcome.value},
+                extra={
+                    "task": task.value,
+                    "outcome": outcome.value,
+                    "error_type": type(exc).__name__,
+                },
             )
 
 

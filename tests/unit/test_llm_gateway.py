@@ -17,6 +17,7 @@ from next_role.integrations.llm.gateway import CallEvent, LLMGateway, SessionRec
 from next_role.integrations.llm.http_providers import OllamaProvider, OpenAICompatibleProvider
 from next_role.integrations.llm.models import LLMOutcome, LLMTask
 from next_role.jobs.models import ExtractionMethod
+from next_role.logging_config import JsonFormatter
 from tests.llm_fakes import MemoryRecorder
 from tests.unit.document_fixtures import snapshot
 from tests.unit.test_document_drafting import LETTER_OUTPUT, _resume_output
@@ -212,10 +213,29 @@ class BrokenRecorder:
 
 def test_a_failing_recorder_does_not_break_the_call(caplog: pytest.LogCaptureFixture) -> None:
     llm = LLMGateway(FakeProvider(LLMError("x"), '{"value": 5}'), BrokenRecorder())
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.WARNING):
         assert llm.complete_model(TASK, "s", "u", Out).value == 5
         llm.record_fallback(TASK, "reason")
-    assert sum("failed to record llm call event" in r.message for r in caplog.records) == 3
+    failures = [r for r in caplog.records if r.message == "failed to record llm call event"]
+    assert len(failures) == 3
+    assert {r.__dict__["error_type"] for r in failures} == {"RuntimeError"}
+
+
+def test_recorder_failures_during_invalid_output_log_no_content(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The recorder fails while the ValidationError, which quotes the output, is being handled.
+    bad = json.dumps({"value": SECRET})
+    llm = LLMGateway(FakeProvider(bad, bad), BrokenRecorder())
+    with caplog.at_level(logging.DEBUG), pytest.raises(ValidationError):
+        llm.complete_model(TASK, "s", "u", Out)
+    failures = [r for r in caplog.records if r.message == "failed to record llm call event"]
+    assert len(failures) == 2
+    formatter = JsonFormatter()
+    for record in caplog.records:
+        assert record.exc_info is None
+        assert SECRET not in formatter.format(record)
+    assert SECRET not in caplog.text
 
 
 def test_an_unreachable_database_does_not_break_the_call() -> None:
