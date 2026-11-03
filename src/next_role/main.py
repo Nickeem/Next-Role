@@ -19,6 +19,7 @@ from next_role.api.routes import (
     documents,
     health,
     jobs,
+    llm,
     notifications,
     reviews,
 )
@@ -35,6 +36,7 @@ from next_role.errors import (
     RateLimitedError,
 )
 from next_role.integrations.llm.factory import build_llm_provider
+from next_role.integrations.llm.gateway import LLMGateway, SessionRecorder
 from next_role.jobs.llm_extraction import LLMRequirementExtractor
 from next_role.jobs.service import RequirementExtractor, rule_based_extractor
 from next_role.logging_config import configure_logging, request_id_var
@@ -49,7 +51,9 @@ _STATUS_BY_ERROR: dict[type[DomainError], int] = {
 }
 
 
-def _build_extractor(settings: Settings) -> RequirementExtractor:
+def _build_extractor(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> RequirementExtractor:
     provider = build_llm_provider(settings)
     if provider is None:
         return rule_based_extractor
@@ -57,7 +61,7 @@ def _build_extractor(settings: Settings) -> RequirementExtractor:
         "llm requirement extraction enabled",
         extra={"provider": provider.name, "external": provider.external},
     )
-    return LLMRequirementExtractor(provider)
+    return LLMRequirementExtractor(LLMGateway(provider, SessionRecorder(session_factory)))
 
 
 def create_app(
@@ -76,7 +80,7 @@ def create_app(
     app.state.session_factory = session_factory or get_sessionmaker(
         get_engine(settings.database_url)
     )
-    app.state.requirement_extractor = _build_extractor(settings)
+    app.state.requirement_extractor = _build_extractor(settings, app.state.session_factory)
     app.state.login_throttle = LoginThrottle()
     # Read-only for the API: the renderer writes files (ADR 0007).
     app.state.artifact_store = LocalArtifactStore(settings.artifact_dir)
@@ -144,6 +148,7 @@ def create_app(
     app.include_router(assessments.router, prefix="/api/v1", dependencies=protected)
     app.include_router(reviews.router, prefix="/api/v1", dependencies=protected)
     app.include_router(notifications.router, prefix="/api/v1", dependencies=protected)
+    app.include_router(llm.router, prefix="/api/v1", dependencies=protected)
     app.include_router(documents.router, prefix="/api/v1", dependencies=protected)
     if settings.static_dir:
         # Registered last: the catch-all must not shadow API, health, or docs routes.

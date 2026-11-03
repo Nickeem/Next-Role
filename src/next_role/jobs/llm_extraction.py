@@ -21,7 +21,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from next_role.integrations.llm.base import LLMError, LLMProvider, describe_error
+from next_role.integrations.llm.base import LLMError, describe_error
+from next_role.integrations.llm.gateway import LLMGateway
+from next_role.integrations.llm.models import LLMTask
 from next_role.jobs.extraction import (
     RequirementImportance,
     classify_requirement,
@@ -71,11 +73,11 @@ def _norm(text: str) -> str:
 class LLMRequirementExtractor:
     def __init__(
         self,
-        provider: LLMProvider,
+        llm: LLMGateway,
         fallback: RequirementExtractor = rule_based_extractor,
         max_attempts: int = 2,
     ) -> None:
-        self.provider = provider
+        self.llm = llm
         self.fallback = fallback
         self.max_attempts = max_attempts
 
@@ -85,7 +87,7 @@ class LLMRequirementExtractor:
         except (LLMError, ValidationError) as exc:
             logger.warning(
                 "llm extraction failed; using rules",
-                extra={"provider": self.provider.name, "error": describe_error(exc)},
+                extra={"provider": self.llm.provider.name, "error": describe_error(exc)},
             )
             return self._fallback(description, f"LLM extraction failed ({describe_error(exc)})")
 
@@ -106,7 +108,7 @@ class LLMRequirementExtractor:
         # Postings often repeat a requirement (e.g. under "Requirements" and "About you").
         requirements = dedupe_requirements(classified)
         merged = len(classified) - len(requirements)
-        notes = f"{self.provider.name} ({PROMPT_VERSION})"
+        notes = f"{self.llm.label} ({PROMPT_VERSION})"
         if dropped:
             notes += f"; dropped {dropped} statement(s) not found in the description"
         if merged:
@@ -115,16 +117,12 @@ class LLMRequirementExtractor:
 
     def _call_llm(self, description: str) -> _LLMOutput:
         user = f"<job_description>\n{description}\n</job_description>"
-        for attempt in range(1, self.max_attempts + 1):
-            try:
-                raw = self.provider.complete_json(SYSTEM_PROMPT, user, OUTPUT_SCHEMA)
-                return _LLMOutput.model_validate_json(raw)
-            except (LLMError, ValidationError):
-                if attempt == self.max_attempts:
-                    raise
-        raise LLMError("max_attempts must be at least 1")
+        return self.llm.complete_model(
+            LLMTask.EXTRACTION, SYSTEM_PROMPT, user, _LLMOutput, self.max_attempts
+        )
 
     def _fallback(self, description: str, reason: str) -> ExtractionResult:
+        self.llm.record_fallback(LLMTask.EXTRACTION, reason)
         result = self.fallback(description)
         result.notes = f"{reason}; used {result.method.value}"
         return result

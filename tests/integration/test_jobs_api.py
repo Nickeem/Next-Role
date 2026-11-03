@@ -143,11 +143,10 @@ def test_list_filter_and_archive(client: TestClient, job: dict[str, Any]) -> Non
 def test_configured_llm_extractor_is_used_and_recorded(
     client: TestClient, job: dict[str, Any]
 ) -> None:
-    from next_role.jobs.llm_extraction import LLMRequirementExtractor
-    from tests.unit.test_llm_extraction import FakeProvider, _json
+    from tests.unit.test_llm_extraction import FakeProvider, _json, extractor
 
     provider = FakeProvider(_json(("Strong Python and FastAPI experience", "required")))
-    client.app.state.requirement_extractor = LLMRequirementExtractor(provider)  # type: ignore[attr-defined]
+    client.app.state.requirement_extractor = extractor(provider)  # type: ignore[attr-defined]
     stored = client.post("/api/v1/jobs", json=job).json()["job"]
     assert stored["extraction_method"] == "llm"
     assert stored["extraction_notes"].startswith("fake")

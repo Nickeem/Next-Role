@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # where its endpoint runs, so this is required for every provider (ADR 0006). Without it,
     # documents are assembled deterministically.
     llm_allow_candidate_data: bool = False
+    # LLM call events (task, outcome, params, never content) older than this are pruned by
+    # the worker. They back GET /integrations/llm/status.
+    llm_event_retention_days: int = Field(default=30, ge=1, le=3650)
 
     # Generated documents (ADR 0007). The renderer writes here; the API only reads.
     artifact_dir: str = "/var/lib/next-role/artifacts"
