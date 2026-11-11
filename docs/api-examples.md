@@ -258,3 +258,58 @@ Notification preferences (no secrets are stored or returned):
 curl -sS -X PATCH $API/api/v1/notification-preferences -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' -d '{"review_ready": false}'
 ```
+
+## 6. Language model per task
+
+With OpenAI as the provider (`NEXT_ROLE_LLM_PROVIDER=openai_compatible`, base URL host
+`api.openai.com`), each task can use its own model and reasoning effort (ADR 0008). The
+models offered are the ones the API key can use that are in Next-Role's catalog, listed at
+most once an hour:
+
+```bash
+curl -sS $API/api/v1/integrations/llm/models -H "X-API-Key: $KEY"
+```
+
+```jsonc
+{"available": true, "reason": null, "stale": false, "fetched_at": "2026-11-11T09:00:00Z",
+ "models": [
+   {"id": "gpt-6-luna", "tier": "fast",
+    "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"]},
+   {"id": "gpt-6.1-sol", "tier": "strong",
+    "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]},
+   {"id": "gpt-6.1-terra", "tier": "strong",
+    "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"]}]}
+```
+
+If the listing fails, `stale` is `true` and the last listing is shown; with no earlier
+listing, `available` is `false` and `reason` says why (for example `HTTP 401`). With another
+provider or host, `available` is `false` and every task uses `NEXT_ROLE_LLM_MODEL`.
+
+Read and change the choices. Tasks listed in a `PUT` are replaced (`null` means the default),
+and tasks not listed keep theirs. The change reaches the API and the worker within a few
+seconds, without a restart:
+
+```bash
+curl -sS -X PUT $API/api/v1/integrations/llm/task-models -H "X-API-Key: $KEY" \
+  -H 'Content-Type: application/json' -d '{"tasks": {
+    "resume_drafting": {"model": "gpt-6.1-terra", "reasoning_effort": "medium"},
+    "semantic_check": {"model": "gpt-6.1-sol", "reasoning_effort": null}}}'
+```
+
+```jsonc
+// The same shape as GET /integrations/llm/task-models
+{"available": true, "reason": null, "default_model": "gpt-6-luna",
+ "tasks": [
+   {"task": "extraction", "model": null, "reasoning_effort": null,
+    "effective_model": "gpt-6-luna", "effective_reasoning_effort": "none",
+    "model_source": "default", "effort_source": "default", "default_reasoning_effort": "none"},
+   {"task": "resume_drafting", "model": "gpt-6.1-terra", "reasoning_effort": "medium",
+    "effective_model": "gpt-6.1-terra", "effective_reasoning_effort": "medium",
+    "model_source": "override", "effort_source": "override", "default_reasoning_effort": "medium"},
+   …]}
+```
+
+A model that is not in the catalog or not available to the key, or an effort the model does
+not support, returns `422`, and nothing is saved. Saving while selection is unavailable, or
+while the models cannot be listed, returns `409`. No response includes the API key or the
+base URL.
