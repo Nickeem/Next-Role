@@ -131,6 +131,55 @@ For documents, a bundle's drafting notes say, for each document, whether it was 
 the model (for example `Resume: ollama/llama3.1:8b (drafting-v2)`) or assembled from your
 facts, and why.
 
+## 4. Choose a model and effort per task (OpenAI)
+
+With OpenAI itself (`NEXT_ROLE_LLM_PROVIDER=openai_compatible` and base URL
+`https://api.openai.com`), **Settings → Language model → Model per task** lets you choose a
+model and a reasoning effort for each task (ADR 0008). You do not need to restart: the API
+and the worker use a saved change within a few seconds.
+
+- **Models offered:** the ones your API key can use (`GET /v1/models`, refreshed at most once
+  an hour) that are in Next-Role's catalog: `gpt-6-luna` (fast), `gpt-6.1-terra` (strong,
+  good at writing) and `gpt-6.1-sol` (strong). Other models are hidden. If the list cannot be
+  fetched, the last list is shown and marked as out of date. With no earlier list, the card
+  says why and you cannot save; every task keeps its current model.
+- **Defaults:** "Default" means `NEXT_ROLE_LLM_MODEL` for the model and, for the effort,
+  extraction `none`, resume and letter drafting `medium`, claim check `low`. Choosing
+  "Default" again clears a choice.
+- **Efforts offered** are the ones the chosen model supports (`gpt-6.1-sol` has no `none`). If
+  a task's effort is not supported by its model, for example a default of `none` on Sol, the
+  model's lowest effort is used. The status card and each call's params show what was sent.
+- **Temperature:** `temperature: 0` is sent only at effort `none`, because OpenAI's reasoning
+  models reject it at any other effort.
+- **Only model names and efforts** are chosen here. The base URL, API key,
+  `NEXT_ROLE_LLM_ALLOW_EXTERNAL` and `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA` stay in `.env`, so
+  nothing here changes where data is sent.
+- **Other providers and hosts** (Ollama, other OpenAI-compatible servers) always use
+  `NEXT_ROLE_LLM_MODEL` with no reasoning effort. The card explains why. Choices saved
+  earlier are kept but ignored.
+- **Unavailable model:** if OpenAI says a chosen model does not exist or the key cannot use
+  it, that call is repeated once with `NEXT_ROLE_LLM_MODEL` and counted as `model_fallback`
+  ("used the default model" on the card).
+- **Mid-run changes:** each call picks its model when it starts. If you change a setting while
+  documents are being drafted, the resume and the cover letter can use different models. Each
+  document's drafting note names the model and effort that drafted it, for example
+  `Resume: openai_compatible/gpt-6.1-terra, effort medium (drafting-v2)`.
+- **Cost and time:** higher efforts are slower, and OpenAI bills reasoning tokens as output
+  tokens. At `high` or above, drafting may need a larger `NEXT_ROLE_LLM_TIMEOUT_SECONDS`
+  (see below). That also raises the worker's health threshold.
+- **The claim check** decides whether drafted claims are supported by your facts. A weaker
+  model or lower effort there lowers verification quality.
+
+A recommended starting setup:
+
+| Task | Model | Effort |
+| --- | --- | --- |
+| Requirement extraction | `gpt-6-luna` | `none` |
+| Resume and cover letter drafting | `gpt-6.1-terra` | `medium` |
+| Claim check | `gpt-6.1-sol` | `low` |
+
+The same choices are available from the API; see `docs/api-examples.md`, section 6.
+
 ## Behaviour and limits
 
 - **Extraction** tries twice when output is invalid or the request fails, then uses the rules.
@@ -138,9 +187,10 @@ facts, and why.
 - **Drafting** retries timeouts, `429`, and `5xx` with backoff, up to
   `NEXT_ROLE_GENERATION_MAX_ATTEMPTS` (3). Output that fails the schema is retried once, then
   the affected section falls back to the deterministic assembler, and the reason is recorded.
-- `NEXT_ROLE_LLM_TIMEOUT_SECONDS` (60) applies to each request. The worker health check allows
-  poll + 4 × timeout when an LLM is configured, so a very large timeout also delays detection
-  of a stuck worker.
+- `NEXT_ROLE_LLM_TIMEOUT_SECONDS` (60) applies to each request, whatever the task or effort.
+  The worker health check allows poll + 4 × timeout when an LLM is configured, so a very large
+  timeout also delays detection of a stuck worker. Raise it if calls at higher reasoning
+  efforts time out (`ReadTimeout`).
 - Logs record the provider name and error type, never prompts, job text, or facts.
 - To turn the model off, set `NEXT_ROLE_LLM_PROVIDER=none` and restart. Existing jobs and
   documents are unchanged.
