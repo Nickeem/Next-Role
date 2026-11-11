@@ -67,6 +67,31 @@ Pull requests, in order:
 - [x] Document workspace: preview, editing, styles, approval.
 - [x] Hardening: notifications, recovery, security, runbook, release checklist.
 
+## LLM hardening (in progress)
+
+Goal: make every LLM call observable, and let each task use the model and reasoning effort
+it needs. This is groundwork for a future ADR that revisits ADR 0003 and gives the LLM more
+responsibility. Nothing here changes what the LLM decides: matching, scoring, and
+classification stay deterministic.
+
+Done:
+
+- [x] LLM provider setup guide (PR #18).
+- [x] Retry OpenAI-compatible calls without a rejected temperature (PR #19).
+- [x] Stop asking the same document question twice (PR #20).
+- [x] One gateway for every LLM call, call events per task, and status on the Settings page
+      (PR #21).
+
+In progress: a model and reasoning effort per task ([ADR 0008](decisions/0008-per-task-llm-model-and-effort.md)),
+as a stack of pull requests:
+
+- [ ] Docs alignment: ADR 0008, this section.
+- [ ] Model and effort per call through the provider and gateway (no behaviour change).
+- [ ] Model catalog and reasoning-effort rules.
+- [ ] Stored per-task choices, resolution, and fallback to the default model.
+- [ ] Model discovery and the task-model API.
+- [ ] Settings UI and operations docs.
+
 ## Later phases (high level, not yet planned in detail)
 
 - **Phase 4: Job discovery and background processing.** Job provider adapters (respecting

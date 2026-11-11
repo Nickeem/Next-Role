@@ -60,8 +60,8 @@ NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true
 
 ```dotenv
 NEXT_ROLE_LLM_PROVIDER=openai_compatible
-NEXT_ROLE_LLM_BASE_URL=https://api.example.com      # without the trailing /v1
-NEXT_ROLE_LLM_MODEL=<model name>
+NEXT_ROLE_LLM_BASE_URL=https://api.openai.com       # without the trailing /v1
+NEXT_ROLE_LLM_MODEL=gpt-6-luna                      # or your provider's model name
 NEXT_ROLE_LLM_API_KEY=<key>
 NEXT_ROLE_LLM_ALLOW_EXTERNAL=true                   # required: job text leaves the server
 # Only if you also want drafting (sends candidate facts to the third party):
@@ -74,6 +74,9 @@ NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true
   work too. They still need `NEXT_ROLE_LLM_ALLOW_EXTERNAL=true`, because Next-Role cannot tell
   where the endpoint runs.
 - Check the provider's data retention terms before you enable candidate data.
+- For OpenAI, use a current model. `gpt-5`, `gpt-5-mini` and `o3` shut down on 2026-12-11,
+  and the dated `gpt-4.1` and `gpt-4o` snapshots on 2027-01-14 (see OpenAI's deprecations
+  page). `gpt-6-luna` is a fast, inexpensive choice for every task.
 
 ## 3. Restart and check
 
