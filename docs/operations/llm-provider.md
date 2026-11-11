@@ -22,9 +22,15 @@ claim is checked against your facts (see
 | `ollama` | `POST {base}/api/chat` | Self-hosted [Ollama](https://ollama.com). Uses a JSON-schema `format` |
 | `openai_compatible` | `POST {base}/v1/chat/completions` | Any API that supports `response_format: {type: "json_schema", strict: true}`. Treated as external |
 
-Both request `temperature: 0`. If an OpenAI-compatible model rejects that, the request is
-retried once without it and the model's default is used from then on. The model must support
-structured (JSON-schema) output. Small models that ignore the schema cause retries and then
+Requests ask for `temperature: 0`, with one exception. With OpenAI itself (base URL host
+`api.openai.com`) and a model in Next-Role's catalog (`gpt-6-luna`, `gpt-6.1-terra`,
+`gpt-6.1-sol`), each task sends a `reasoning_effort`: extraction `none`, resume and letter
+drafting `medium`, claim check `low`. If the model does not support a task's effort, its lowest
+supported effort is used (for example `low` for extraction on `gpt-6.1-sol`). OpenAI's
+reasoning models accept a temperature only when the effort is `none`, so `temperature: 0` is
+sent only then. Any other model or endpoint gets no `reasoning_effort`. If such a model
+rejects the temperature, the request is retried once without it, and that model gets no
+temperature from then on. The model must support structured (JSON-schema) output. Small models that ignore the schema cause retries and then
 fallbacks.
 
 ## 2a. Ollama (self-hosted)
@@ -147,7 +153,7 @@ Provider errors are reported as an HTTP status or an error type:
 | `... returned HTTP 401` / `403` | Missing or wrong `NEXT_ROLE_LLM_API_KEY` |
 | `... returned HTTP 404` | Wrong base URL (for example a trailing `/v1`), or the model is not pulled (`ollama list`) |
 | `... returned HTTP 400` | The endpoint or model does not support JSON-schema structured output |
-| `temperature_dropped` in the status counts, or log `model rejected temperature; using its default` | Informational. The model (for example an OpenAI reasoning model) accepts only its default temperature; Next-Role stops sending `temperature: 0` until restart and output is less repeatable. Later calls show `temperature_sent: false` in their params |
+| `temperature_dropped` in the status counts, or log `model rejected temperature; using its default` | Informational for models outside the catalog: the model (for example an OpenAI reasoning model) accepts only its default temperature, so Next-Role stops sending `temperature: 0` to that model until restart and output is less repeatable. Later calls show `temperature_sent: false` in their params. For a catalogued model it should never happen; it means the catalog's effort list is wrong (please report it) |
 | `ValidationError` in extraction notes, or sections falling back | The model returned JSON that does not match the schema. Use a more capable model |
 | `LLM returned no grounded requirements` | The model paraphrased instead of copying text. Use a more capable model; rules are used meanwhile |
 | Documents "assembled from your facts" although a provider is set | `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA` is not `true` (ADR 0006) |

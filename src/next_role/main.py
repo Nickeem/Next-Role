@@ -37,6 +37,7 @@ from next_role.errors import (
 )
 from next_role.integrations.llm.factory import build_llm_provider
 from next_role.integrations.llm.gateway import LLMGateway, SessionRecorder
+from next_role.integrations.llm.resolver import build_resolver
 from next_role.jobs.llm_extraction import LLMRequirementExtractor
 from next_role.jobs.service import RequirementExtractor, rule_based_extractor
 from next_role.logging_config import configure_logging, request_id_var
@@ -61,7 +62,8 @@ def _build_extractor(
         "llm requirement extraction enabled",
         extra={"provider": provider.name, "external": provider.external},
     )
-    return LLMRequirementExtractor(LLMGateway(provider, SessionRecorder(session_factory)))
+    gateway = LLMGateway(provider, SessionRecorder(session_factory), build_resolver(settings))
+    return LLMRequirementExtractor(gateway)
 
 
 def create_app(
