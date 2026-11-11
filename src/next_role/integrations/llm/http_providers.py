@@ -66,7 +66,10 @@ class _HTTPProvider:
             data: dict[str, Any] = response.json()
         except httpx.HTTPStatusError as exc:
             raise LLMError(
-                f"{self.name} returned HTTP {exc.response.status_code}", params, rejected
+                f"{self.name} returned HTTP {exc.response.status_code}",
+                params,
+                rejected,
+                model_unavailable=self._model_unavailable(exc.response),
             ) from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise LLMError(
@@ -76,6 +79,19 @@ class _HTTPProvider:
 
     def _retry_without_temperature(self, response: httpx.Response, body: dict[str, Any]) -> bool:
         return False
+
+    def _model_unavailable(self, response: httpx.Response) -> bool:
+        return False
+
+
+def _error_object(response: httpx.Response) -> dict[str, Any] | None:
+    """The ``error`` object of an OpenAI-style error body, or None. Read, never stored."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    error = payload.get("error") if isinstance(payload, dict) else None
+    return error if isinstance(error, dict) else None
 
 
 class OllamaProvider(_HTTPProvider):
@@ -151,14 +167,10 @@ class OpenAICompatibleProvider(_HTTPProvider):
     def _retry_without_temperature(self, response: httpx.Response, body: dict[str, Any]) -> bool:
         if response.status_code != 400 or "temperature" not in body:
             return False
-        try:
-            payload = response.json()
-        except ValueError:
-            return False
         # Any shape other than {"error": {"param": "temperature", ...}} falls through to the
         # normal HTTP-status handling, which raises LLMError.
-        error = payload.get("error") if isinstance(payload, dict) else None
-        if not isinstance(error, dict) or error.get("param") != "temperature":
+        error = _error_object(response)
+        if error is None or error.get("param") != "temperature":
             return False
         # Remembered per model, so later calls to it skip the parameter. A race between threads
         # costs at most one extra 400; what each call sent is reported in its result.
@@ -169,6 +181,15 @@ class OpenAICompatibleProvider(_HTTPProvider):
             extra={"provider": self.name, "model": body["model"]},
         )
         return True
+
+    def _model_unavailable(self, response: httpx.Response) -> bool:
+        # OpenAI answers HTTP 404 with code "model_not_found" when the model does not exist or
+        # the key cannot use it. Its error-code guide does not document this code, so it is
+        # matched exactly; any other answer stays an ordinary provider error (no fallback).
+        if response.status_code != 404:
+            return False
+        error = _error_object(response)
+        return error is not None and error.get("code") == "model_not_found"
 
     def _params(self, body: dict[str, Any]) -> RequestParams:
         return RequestParams(

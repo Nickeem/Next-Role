@@ -1,13 +1,14 @@
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from next_role.api.deps import get_app_settings, get_session
 from next_role.config import LLMProviderName, Settings
 from next_role.integrations.llm import status
 from next_role.integrations.llm.models import LLMTask
+from next_role.integrations.llm.resolver import ModelResolver
 from next_role.integrations.llm.schemas import LLMStatusOut
 
 router = APIRouter(tags=["integrations"])
@@ -18,9 +19,16 @@ CANDIDATE_DATA_TASKS = frozenset(
 )
 
 
+def get_resolver(request: Request) -> ModelResolver:
+    resolver: ModelResolver = request.app.state.llm_resolver
+    return resolver
+
+
 @router.get("/integrations/llm/status")
 def llm_status(
-    session: Session = Depends(get_session), settings: Settings = Depends(get_app_settings)
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+    resolver: ModelResolver = Depends(get_resolver),
 ) -> LLMStatusOut:
     """Per-task LLM call outcomes. Never discloses the base URL path, API key or content."""
     enabled = settings.llm_provider is not LLMProviderName.NONE
@@ -29,7 +37,7 @@ def llm_status(
         for task in LLMTask
         if enabled and (task not in CANDIDATE_DATA_TASKS or settings.llm_allow_candidate_data)
     }
-    model = settings.llm_model if enabled else None
+    resolved = {task: resolver.resolve(task) if enabled else None for task in LLMTask}
     return LLMStatusOut(
         provider=settings.llm_provider,
         enabled=enabled,
@@ -39,7 +47,5 @@ def llm_status(
         allow_external=settings.llm_allow_external,
         allow_candidate_data=settings.llm_allow_candidate_data,
         retention_days=settings.llm_event_retention_days,
-        tasks=status.task_status(
-            session, datetime.now(UTC), dict.fromkeys(LLMTask, model), available
-        ),
+        tasks=status.task_status(session, datetime.now(UTC), resolved, available),
     )

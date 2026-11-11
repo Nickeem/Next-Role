@@ -114,8 +114,11 @@ The response names the provider and its host only (never the base URL path or th
 checks without `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA`), `counts_24h` and `counts` (since the
 retention window, `NEXT_ROLE_LLM_EVENT_RETENTION_DAYS`, 30 days) by outcome, `last_error`
 (message, time, model, and the request params sent: model, whether and which temperature,
-reasoning effort, response format type, timeout) and `last_success` (time, model, latency). Prompts, job text,
-facts and model output are never stored or returned.
+reasoning effort, response format type, timeout), `last_success` (time, model, latency) and
+`last_attempt` (time, outcome, model and effort of the latest request). Each task also shows
+the `model` and `reasoning_effort` it uses now, and whether each is the `default` or an
+`override` (`model_source`, `effort_source`). Prompts, job text, facts and model output are
+never stored or returned.
 
 The job in the response also shows what happened:
 
@@ -153,6 +156,7 @@ Provider errors are reported as an HTTP status or an error type:
 | `... returned HTTP 401` / `403` | Missing or wrong `NEXT_ROLE_LLM_API_KEY` |
 | `... returned HTTP 404` | Wrong base URL (for example a trailing `/v1`), or the model is not pulled (`ollama list`) |
 | `... returned HTTP 400` | The endpoint or model does not support JSON-schema structured output |
+| `model_fallback` in the status counts, error `<model> unavailable; used <default>` | OpenAI said the model chosen for the task does not exist or your key cannot use it (HTTP 404, code `model_not_found`; OpenAI does not document this code, so only that exact answer triggers it). The attempt was repeated with `NEXT_ROLE_LLM_MODEL`. Choose another model for the task, or check the key's project access |
 | `temperature_dropped` in the status counts, or log `model rejected temperature; using its default` | Informational for models outside the catalog: the model (for example an OpenAI reasoning model) accepts only its default temperature, so Next-Role stops sending `temperature: 0` to that model until restart and output is less repeatable. Later calls show `temperature_sent: false` in their params. For a catalogued model it should never happen; it means the catalog's effort list is wrong (please report it) |
 | `ValidationError` in extraction notes, or sections falling back | The model returned JSON that does not match the schema. Use a more capable model |
 | `LLM returned no grounded requirements` | The model paraphrased instead of copying text. Use a more capable model; rules are used meanwhile |

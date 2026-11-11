@@ -1,8 +1,9 @@
 """The single entry point for LLM calls: call, validate, retry, and record what happened.
 
 Every call site goes through ``LLMGateway.complete_model`` so each attempt, schema failure,
-temperature drop and deterministic fallback is recorded per ``LLMTask``. The model and reasoning
-effort for each call come from the injected ``ModelResolver``, asked once per call.
+temperature drop, model fallback and deterministic fallback is recorded per ``LLMTask``. The
+model and reasoning effort for each call come from the injected ``ModelResolver``, asked once
+per call.
 
 Recording is best-effort: a failure to record is logged and never affects the call.
 """
@@ -108,13 +109,18 @@ class LLMGateway:
     ) -> Completed[T]:
         """Return validated output, retrying on LLMError or ValidationError.
 
-        The task's model and effort are resolved once, at the start of the call. After
-        ``attempts`` failures the last error is raised unchanged.
+        The task's model and effort are resolved once, at the start of the call. If the
+        provider says that model is unavailable, the same attempt is repeated once with the
+        default model and its own effort (recorded as ``model_fallback``). After ``attempts``
+        failures the last error is raised unchanged.
         """
         schema = model_cls.model_json_schema()
         resolved = self.resolver.resolve(task)
-        model = resolved.model
-        for attempt in range(1, attempts + 1):
+        default = self.provider.model
+        fell_back = False
+        attempt = 1
+        while attempt <= attempts:
+            model = resolved.model
             started = time.perf_counter()
             try:
                 completion = self.provider.complete_json(
@@ -135,8 +141,20 @@ class LLMGateway:
                     params=_params(exc.params),
                     latency_ms=_since(started),
                 )
+                if exc.model_unavailable and model != default and not fell_back:
+                    fell_back = True
+                    self._record(
+                        task,
+                        LLMOutcome.MODEL_FALLBACK,
+                        model,
+                        attempt=attempt,
+                        error=f"{model} unavailable; used {default}",
+                    )
+                    resolved = self.resolver.for_model(task, default)
+                    continue  # the same attempt, with the default model
                 if attempt == attempts:
                     raise
+                attempt += 1
                 continue
             latency = _since(started)
             self._dropped(task, model, attempt, completion.temperature_rejected)
@@ -155,6 +173,7 @@ class LLMGateway:
                 )
                 if attempt == attempts:
                     raise
+                attempt += 1
                 continue
             self._record(
                 task,
