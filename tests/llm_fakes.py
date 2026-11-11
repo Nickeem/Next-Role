@@ -1,6 +1,8 @@
 """Shared helpers for faked LLM providers and recorded call events."""
 
-from next_role.integrations.llm.base import Completion, RequestParams
+from dataclasses import replace
+
+from next_role.integrations.llm.base import Completion, ReasoningEffort, RequestParams
 from next_role.integrations.llm.gateway import CallEvent
 
 PARAMS = RequestParams(
@@ -8,8 +10,12 @@ PARAMS = RequestParams(
 )
 
 
-def completion(text: str) -> Completion:
-    return Completion(text, PARAMS)
+def completion(
+    text: str, model: str = "fake-model", reasoning_effort: ReasoningEffort | None = None
+) -> Completion:
+    """A completion whose params name the model and effort the fake was called with."""
+    effort = reasoning_effort.value if reasoning_effort else None
+    return Completion(text, replace(PARAMS, model=model, reasoning_effort=effort))
 
 
 class MemoryRecorder:

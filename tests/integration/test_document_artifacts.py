@@ -554,7 +554,9 @@ def test_generation_failures_notify_once_per_bundle(
         model = "broken-model"
         external = False
 
-        def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> Any:
+        def complete_json(
+            self, system: str, user: str, schema: dict[str, Any], **kwargs: Any
+        ) -> Any:
             raise RuntimeError("boom")
 
     for n in range(2):

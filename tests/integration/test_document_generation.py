@@ -15,7 +15,7 @@ from next_role.candidates.models import CandidateFact, VerificationStatus
 from next_role.documents import generation, runs
 from next_role.documents.models import DocumentBundle, DocumentRevision, GenerationRun
 from next_role.documents.workflow import RunStatus
-from next_role.integrations.llm.base import Completion, LLMError, LLMProvider
+from next_role.integrations.llm.base import Completion, LLMError, LLMProvider, ReasoningEffort
 from next_role.integrations.llm.gateway import LLMGateway, SessionRecorder
 from next_role.integrations.llm.models import LLMCallEvent, LLMOutcome, LLMTask
 from next_role.review.models import OpportunityReview
@@ -320,8 +320,16 @@ class _FakeLLM:
     def __init__(self) -> None:
         self.judged = 0
 
-    def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> Completion:
-        return completion(self.text(system, user, schema))
+    def complete_json(
+        self,
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        *,
+        model: str,
+        reasoning_effort: ReasoningEffort | None = None,
+    ) -> Completion:
+        return completion(self.text(system, user, schema), model, reasoning_effort)
 
     def text(self, system: str, user: str, schema: dict[str, Any]) -> str:
         if "<claims>" in user:
@@ -480,4 +488,7 @@ def test_calls_are_recorded_and_a_failed_check_records_a_fallback(
     ] * 2
     with session_factory() as s:
         bundle = s.scalars(select(DocumentBundle)).one()
-    assert bundle.drafting_notes[0] == "fake/fake-model (drafting-v2)"
+    assert bundle.drafting_notes[:2] == [
+        "Resume: fake/fake-model (drafting-v2)",
+        "Cover letter: fake/fake-model (drafting-v2)",
+    ]

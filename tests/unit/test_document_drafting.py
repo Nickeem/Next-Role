@@ -17,7 +17,7 @@ from next_role.documents.schemas import (
 from next_role.documents.service import replace_section, verification_context
 from next_role.documents.verification import SemanticRequest, Verdict, verify
 from next_role.documents.workflow import ClaimStatus, VerificationOutcome
-from next_role.integrations.llm.base import Completion, LLMError
+from next_role.integrations.llm.base import Completion, LLMError, ReasoningEffort
 from next_role.integrations.llm.gateway import LLMGateway
 from tests.llm_fakes import completion
 from tests.unit.document_fixtures import ACH, EDU, EXP, OLD_EXP, REQ_K8S, SKILL_PY, facts, snapshot
@@ -33,13 +33,25 @@ class FakeProvider:
     def __init__(self, *responses: Any) -> None:
         self.responses = list(responses)
         self.calls: list[tuple[str, str]] = []
+        # (model, reasoning_effort) of each call.
+        self.sent: list[tuple[str, ReasoningEffort | None]] = []
 
-    def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> Completion:
+    def complete_json(
+        self,
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        *,
+        model: str,
+        reasoning_effort: ReasoningEffort | None = None,
+    ) -> Completion:
         self.calls.append((system, user))
+        self.sent.append((model, reasoning_effort))
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
-        return completion(response if isinstance(response, str) else json.dumps(response))
+        text = response if isinstance(response, str) else json.dumps(response)
+        return completion(text, model, reasoning_effort)
 
 
 def _verify(doc: Any, snap: Any, semantic: bool = False, verdicts: Any = None) -> Any:

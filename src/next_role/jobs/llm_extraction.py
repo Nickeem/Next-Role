@@ -22,7 +22,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from next_role.integrations.llm.base import LLMError, describe_error
-from next_role.integrations.llm.gateway import LLMGateway
+from next_role.integrations.llm.gateway import Completed, LLMGateway
 from next_role.integrations.llm.models import LLMTask
 from next_role.jobs.extraction import (
     RequirementImportance,
@@ -83,7 +83,7 @@ class LLMRequirementExtractor:
 
     def __call__(self, description: str) -> ExtractionResult:
         try:
-            output = self._call_llm(description)
+            done = self._call_llm(description)
         except (LLMError, ValidationError) as exc:
             logger.warning(
                 "llm extraction failed; using rules",
@@ -93,7 +93,7 @@ class LLMRequirementExtractor:
 
         haystack = _norm(description)
         grounded, dropped = [], 0
-        for item in output.requirements:
+        for item in done.value.requirements:
             if _norm(item.text) and _norm(item.text) in haystack:
                 grounded.append(item)
             else:
@@ -108,14 +108,14 @@ class LLMRequirementExtractor:
         # Postings often repeat a requirement (e.g. under "Requirements" and "About you").
         requirements = dedupe_requirements(classified)
         merged = len(classified) - len(requirements)
-        notes = f"{self.llm.label} ({PROMPT_VERSION})"
+        notes = f"{done.label} ({PROMPT_VERSION})"
         if dropped:
             notes += f"; dropped {dropped} statement(s) not found in the description"
         if merged:
             notes += f"; merged {merged} repeated statement(s)"
         return ExtractionResult(requirements, ExtractionMethod.LLM, notes)
 
-    def _call_llm(self, description: str) -> _LLMOutput:
+    def _call_llm(self, description: str) -> Completed[_LLMOutput]:
         user = f"<job_description>\n{description}\n</job_description>"
         return self.llm.complete_model(
             LLMTask.EXTRACTION, SYSTEM_PROMPT, user, _LLMOutput, self.max_attempts

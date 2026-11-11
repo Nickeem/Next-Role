@@ -6,7 +6,7 @@ import pytest
 from pydantic import SecretStr
 
 from next_role.config import LLMProviderName, Settings
-from next_role.integrations.llm.base import Completion, LLMError
+from next_role.integrations.llm.base import Completion, LLMError, ReasoningEffort
 from next_role.integrations.llm.factory import build_llm_provider
 from next_role.integrations.llm.gateway import LLMGateway
 from next_role.integrations.llm.http_providers import OllamaProvider, OpenAICompatibleProvider
@@ -30,13 +30,24 @@ class FakeProvider:
     def __init__(self, *responses: str | Exception) -> None:
         self.responses = list(responses)
         self.calls: list[tuple[str, str]] = []
+        # (model, reasoning_effort) of each call.
+        self.sent: list[tuple[str, ReasoningEffort | None]] = []
 
-    def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> Completion:
+    def complete_json(
+        self,
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        *,
+        model: str,
+        reasoning_effort: ReasoningEffort | None = None,
+    ) -> Completion:
         self.calls.append((system, user))
+        self.sent.append((model, reasoning_effort))
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
-        return completion(response)
+        return completion(response, model, reasoning_effort)
 
 
 def extractor(provider: Any, recorder: Any = None, **kwargs: Any) -> LLMRequirementExtractor:
@@ -117,9 +128,9 @@ def test_ollama_adapter_request_and_response() -> None:
         5,
         transport=_transport(captured, {"message": {"content": "{}"}}),
     )
-    assert provider.complete_json("sys", "usr", {"type": "object"}).text == "{}"
+    assert provider.complete_json("sys", "usr", {"type": "object"}, model="llama3").text == "{}"
     sent = json.loads(captured[0].content)
-    assert captured[0].url.path == "/api/chat"
+    assert captured[0].url.path == "/api/chat" and sent["model"] == "llama3"
     assert sent["format"] == {"type": "object"} and sent["stream"] is False
     assert provider.external is False
 
@@ -134,7 +145,7 @@ def test_openai_compatible_adapter_sends_key_and_schema() -> None:
         api_key="secret",
         transport=_transport(captured, body),
     )
-    assert provider.complete_json("sys", "usr", {"type": "object"}).text == "{}"
+    assert provider.complete_json("sys", "usr", {"type": "object"}, model="m").text == "{}"
     assert captured[0].headers["Authorization"] == "Bearer secret"
     assert json.loads(captured[0].content)["response_format"]["type"] == "json_schema"
     assert provider.external is True
@@ -167,10 +178,10 @@ def test_openai_compatible_drops_rejected_temperature_and_remembers() -> None:
     provider = OpenAICompatibleProvider(
         "https://llm.example.invalid", "m", 5, transport=_temperature_rejecting_transport(captured)
     )
-    assert provider.complete_json("s", "u", {"type": "object"}).text == "{}"
+    assert provider.complete_json("s", "u", {"type": "object"}, model="m").text == "{}"
     assert [("temperature" in json.loads(r.content)) for r in captured] == [True, False]
     # Later calls skip the rejected parameter instead of failing first.
-    assert provider.complete_json("s", "u", {"type": "object"}).text == "{}"
+    assert provider.complete_json("s", "u", {"type": "object"}, model="m").text == "{}"
     assert len(captured) == 3 and "temperature" not in json.loads(captured[2].content)
 
 
@@ -181,7 +192,7 @@ def test_openai_compatible_other_400s_are_not_retried() -> None:
         "https://llm.example.invalid", "m", 5, transport=_transport(captured, body, code=400)
     )
     with pytest.raises(LLMError, match="HTTP 400"):
-        provider.complete_json("s", "u", {})
+        provider.complete_json("s", "u", {}, model="m")
     assert len(captured) == 1
     assert "temperature" in json.loads(captured[0].content)
 
@@ -193,7 +204,7 @@ def test_openai_compatible_unexpected_400_bodies_become_llm_errors(body: Any) ->
         "https://llm.example.invalid", "m", 5, transport=_transport(captured, body, code=400)
     )
     with pytest.raises(LLMError, match="HTTP 400"):
-        provider.complete_json("s", "u", {})
+        provider.complete_json("s", "u", {}, model="m")
     assert len(captured) == 1
 
 
@@ -213,10 +224,10 @@ def test_extraction_schema_is_strict_compatible() -> None:
 def test_adapter_errors_become_llm_errors() -> None:
     provider = OllamaProvider("http://x", "m", 5, transport=_transport([], {}, code=500))
     with pytest.raises(LLMError, match="HTTP 500"):
-        provider.complete_json("s", "u", {})
+        provider.complete_json("s", "u", {}, model="m")
     provider = OllamaProvider("http://x", "m", 5, transport=_transport([], {"unexpected": 1}))
     with pytest.raises(LLMError, match="missing"):
-        provider.complete_json("s", "u", {})
+        provider.complete_json("s", "u", {}, model="m")
 
 
 def test_factory() -> None:

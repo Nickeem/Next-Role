@@ -621,7 +621,8 @@ def _llm_question(q: _LLMQuestion, kind: DocumentKind) -> Question:
 
 def llm_resume(
     llm: LLMGateway, snapshot: InputSnapshot, today: date, asked: Sequence[str] = ()
-) -> tuple[ResumeDocument, list[Question]]:
+) -> tuple[ResumeDocument, list[Question], str]:
+    """The model-written resume, its questions, and the label of the model that wrote it."""
     base = assemble_resume(snapshot, today)
     entries = [
         {
@@ -636,9 +637,10 @@ def llm_resume(
         for item in section.items
     ]
     extra = {"entries": entries, "asked_questions": list(asked)}
-    out = llm.complete_model(
+    done = llm.complete_model(
         LLMTask.RESUME_DRAFTING, RESUME_PROMPT, _user(snapshot, extra), _ResumeOut
     )
+    out = done.value
     bullets = {i.item_id: i.bullets for i in out.items}
 
     sections: list[Section] = []
@@ -694,7 +696,7 @@ def llm_resume(
     resume = ResumeDocument.model_validate(
         base.model_copy(update={"sections": sections}).model_dump(mode="json")
     )
-    return resume, [_llm_question(q, DocumentKind.RESUME) for q in out.questions]
+    return resume, [_llm_question(q, DocumentKind.RESUME) for q in out.questions], done.label
 
 
 def llm_letter(
@@ -702,14 +704,15 @@ def llm_letter(
     snapshot: InputSnapshot,
     statements: Mapping[str, str],
     asked: Sequence[str] = (),
-) -> tuple[CoverLetterDocument, list[Question]]:
+) -> tuple[CoverLetterDocument, list[Question], str]:
     extra = {
         "statements": [{"id": k, "text": v} for k, v in statements.items()],
         "asked_questions": list(asked),
     }
-    out = llm.complete_model(
+    done = llm.complete_model(
         LLMTask.LETTER_DRAFTING, LETTER_PROMPT, _user(snapshot, extra), _LetterOut
     )
+    out = done.value
     paragraphs = [
         Paragraph(
             id=f"p{p + 1}",
@@ -728,7 +731,8 @@ def llm_letter(
     letter = CoverLetterDocument(
         header=header_of(snapshot), target=target_of(snapshot), paragraphs=paragraphs
     )
-    return letter, [_llm_question(q, DocumentKind.COVER_LETTER) for q in out.questions]
+    questions = [_llm_question(q, DocumentKind.COVER_LETTER) for q in out.questions]
+    return letter, questions, done.label
 
 
 def draft(
@@ -755,13 +759,18 @@ def draft(
         letter=fallback.letter,
         questions=list(fallback.questions),
         mode=DraftingMode.LLM,
-        notes=[f"{llm.label} ({PROMPT_VERSION})"],
+        # One note per model-written document, naming its model: a run resolves the model
+        # per call, so a settings change mid-run can give the two documents different models.
+        notes=[],
         by_llm={DocumentKind.RESUME: False, DocumentKind.COVER_LETTER: False},
     )
     if DocumentKind.RESUME in kinds:
         try:
-            result.resume, extra = llm_resume(llm, snapshot, today, _asked(asked, result.questions))
+            result.resume, extra, label = llm_resume(
+                llm, snapshot, today, _asked(asked, result.questions)
+            )
             result.questions += extra
+            result.notes.append(f"Resume: {label} ({PROMPT_VERSION})")
             result.by_llm[DocumentKind.RESUME] = True
         except (LLMError, ValidationError) as exc:
             logger.warning("llm resume drafting failed", extra={"error": describe_error(exc)})
@@ -773,10 +782,11 @@ def draft(
             )
     if DocumentKind.COVER_LETTER in kinds:
         try:
-            result.letter, extra = llm_letter(
+            result.letter, extra, label = llm_letter(
                 llm, snapshot, statements, _asked(asked, result.questions)
             )
             result.questions += extra
+            result.notes.append(f"Cover letter: {label} ({PROMPT_VERSION})")
             result.by_llm[DocumentKind.COVER_LETTER] = True
         except (LLMError, ValidationError) as exc:
             logger.warning("llm letter drafting failed", extra={"error": describe_error(exc)})
@@ -852,7 +862,7 @@ def judge(llm: LLMGateway, requests: list[SemanticRequest]) -> dict[str, Verdict
             for r in batch
         ]
         user = f"<claims>\n{_data(payload)}\n</claims>"
-        out = llm.complete_model(LLMTask.SEMANTIC_CHECK, JUDGE_PROMPT, user, _JudgeOut)
+        out = llm.complete_model(LLMTask.SEMANTIC_CHECK, JUDGE_PROMPT, user, _JudgeOut).value
         wanted = {r.key for r in batch}
         for judgement in out.judgements:
             if judgement.key in wanted:
