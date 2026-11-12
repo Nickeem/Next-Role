@@ -22,7 +22,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from next_role.integrations.llm.base import LLMError, describe_error
-from next_role.integrations.llm.gateway import Completed, LLMGateway
+from next_role.integrations.llm.gateway import Completed, LLMGateway, failed_model
 from next_role.integrations.llm.models import LLMTask
 from next_role.jobs.extraction import (
     RequirementImportance,
@@ -89,7 +89,9 @@ class LLMRequirementExtractor:
                 "llm extraction failed; using rules",
                 extra={"provider": self.llm.provider.name, "error": describe_error(exc)},
             )
-            return self._fallback(description, f"LLM extraction failed ({describe_error(exc)})")
+            return self._fallback(
+                description, f"LLM extraction failed ({describe_error(exc)})", failed_model(exc)
+            )
 
         haystack = _norm(description)
         grounded, dropped = [], 0
@@ -99,7 +101,7 @@ class LLMRequirementExtractor:
             else:
                 dropped += 1
         if not grounded:
-            return self._fallback(description, "LLM returned no grounded requirements")
+            return self._fallback(description, "LLM returned no grounded requirements", done.model)
 
         classified = [
             classify_requirement(item.text, RequirementImportance(item.importance))
@@ -121,8 +123,8 @@ class LLMRequirementExtractor:
             LLMTask.EXTRACTION, SYSTEM_PROMPT, user, _LLMOutput, self.max_attempts
         )
 
-    def _fallback(self, description: str, reason: str) -> ExtractionResult:
-        self.llm.record_fallback(LLMTask.EXTRACTION, reason)
+    def _fallback(self, description: str, reason: str, model: str | None) -> ExtractionResult:
+        self.llm.record_fallback(LLMTask.EXTRACTION, reason, model=model)
         result = self.fallback(description)
         result.notes = f"{reason}; used {result.method.value}"
         return result

@@ -59,11 +59,14 @@ Boundaries:
   (worker). It validates the output with Pydantic, retries once on a provider or schema error,
   and writes an `llm_call_events` row per attempt (`ok`, `provider_error`, `schema_invalid`),
   per dropped temperature (`temperature_dropped`), per model fallback (`model_fallback`), and
-  per deterministic fallback, which callers record with `record_fallback`. Rows are written in their own short transaction
-  through the process's session factory, because both processes call models and only the
-  database sees both. A recording failure is logged and never fails the call. Rows hold the
-  model, a redacted error and the request params actually sent (model, temperature, reasoning
-  effort, response format type, timeout); never prompts, messages, schemas or responses.
+  per deterministic fallback, which callers record with `record_fallback`, passing the model
+  the call last used (`failed_model(exc)`, carried on the raised error, or `Completed.model`)
+  so the row names the model that failed even after a `model_fallback`. Rows are written in
+  their own short transaction through the process's session factory, because both processes
+  call models and only the database sees both. A recording failure is logged and never fails
+  the call. Rows hold the model, a redacted error and the request params actually sent
+  (model, temperature, reasoning effort, response format type, timeout); never prompts,
+  messages, schemas or responses.
   The gateway asks its `ModelResolver` (`resolver.py`) for the task's model and reasoning
   effort once per call and passes both to the provider, so each row names the model that
   call used. `complete_model` returns the output with that model, effort and a label, which

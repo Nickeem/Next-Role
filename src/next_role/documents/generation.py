@@ -35,7 +35,7 @@ from next_role.documents.workflow import (
     RunIntent,
 )
 from next_role.integrations.llm.base import LLMError, LLMProvider
-from next_role.integrations.llm.gateway import LLMGateway
+from next_role.integrations.llm.gateway import LLMGateway, failed_model
 from next_role.integrations.llm.models import LLMTask
 from next_role.notifications import service as notifications
 from next_role.notifications.models import NotificationEventType
@@ -189,7 +189,9 @@ def check(
         logger.warning("semantic check failed", extra={"error_type": type(exc).__name__})
         # Claims stay "awaiting check" and a verify run is queued: deterministic results only.
         ctx.llm.record_fallback(
-            LLMTask.SEMANTIC_CHECK, f"semantic check deferred ({type(exc).__name__})"
+            LLMTask.SEMANTIC_CHECK,
+            f"semantic check deferred ({type(exc).__name__})",
+            model=failed_model(exc),
         )
         return Checked(result, type(exc).__name__)
     ctx.progress()

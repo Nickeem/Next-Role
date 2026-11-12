@@ -6,14 +6,16 @@ from typing import Any
 
 import httpx
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from next_role.integrations.llm.base import LLMError, ReasoningEffort
 from next_role.integrations.llm.catalog import CatalogModel, Tier
-from next_role.integrations.llm.gateway import CallEvent, LLMGateway
+from next_role.integrations.llm.gateway import CallEvent, LLMGateway, failed_model
 from next_role.integrations.llm.http_providers import OllamaProvider, OpenAICompatibleProvider
 from next_role.integrations.llm.models import ERROR_OUTCOMES, LLMOutcome, LLMTask
 from next_role.integrations.llm.resolver import Resolved, Source, StaticResolver
+from next_role.jobs.llm_extraction import LLMRequirementExtractor
+from next_role.jobs.models import ExtractionMethod
 from tests.llm_fakes import MemoryRecorder
 
 E = ReasoningEffort
@@ -52,7 +54,10 @@ class Chosen:
 
 
 def _provider(
-    unavailable: set[str], status: int = 404, body: Any = None
+    unavailable: set[str],
+    status: int = 404,
+    body: Any = None,
+    content: str = '{"value": 1}',
 ) -> tuple[OpenAICompatibleProvider, list[dict[str, Any]]]:
     sent: list[dict[str, Any]] = []
 
@@ -61,7 +66,7 @@ def _provider(
         sent.append(payload)
         if payload["model"] in unavailable:
             return httpx.Response(status, json=NOT_FOUND if body is None else body)
-        return httpx.Response(200, json={"choices": [{"message": {"content": '{"value": 1}'}}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
     provider = OpenAICompatibleProvider(
         "https://api.openai.com", "default", 5, transport=httpx.MockTransport(handler)
@@ -188,3 +193,54 @@ def test_the_error_body_is_never_recorded_or_logged(caplog: pytest.LogCaptureFix
 
 def _dump(event: CallEvent) -> dict[str, Any]:
     return dict(event.__dict__)
+
+
+# --- Deterministic fallback rows name the model the call last used ------------------------
+
+
+def test_after_a_model_fallback_the_deterministic_fallback_names_the_default() -> None:
+    # The override is unavailable, the default fails too, and extraction falls back to rules.
+    provider, sent = _provider({"chosen", "default"})
+    recorder = MemoryRecorder()
+    extractor = LLMRequirementExtractor(LLMGateway(provider, recorder, Chosen()))
+    result = extractor("Requirements: 5+ years of Python experience.")
+
+    assert result.method is ExtractionMethod.RULES
+    assert [b["model"] for b in sent] == ["chosen", "default", "default"]
+    assert recorder.outcomes() == [
+        "provider_error",
+        "model_fallback",
+        "provider_error",
+        "provider_error",
+        "deterministic_fallback",
+    ]
+    assert recorder.events[-1].model == "default"
+
+
+def test_unusable_output_after_a_model_fallback_names_the_default() -> None:
+    # The default answers, but nothing it returns is in the description.
+    provider, _ = _provider(
+        {"chosen"}, content='{"requirements": [{"text": "Rust", "importance": "required"}]}'
+    )
+    recorder = MemoryRecorder()
+    extractor = LLMRequirementExtractor(LLMGateway(provider, recorder, Chosen()))
+    assert extractor("Requirements: Python.").method is ExtractionMethod.RULES
+    assert recorder.outcomes()[-2:] == ["ok", "deterministic_fallback"]
+    assert recorder.events[-1].model == "default"
+
+
+@pytest.mark.parametrize(
+    ("unavailable", "content", "error"),
+    [({"chosen", "default"}, '{"value": 1}', LLMError), ({"chosen"}, "not json", ValidationError)],
+)
+def test_the_raised_error_carries_the_model_last_used(
+    unavailable: set[str], content: str, error: type[Exception]
+) -> None:
+    provider, _ = _provider(unavailable, content=content)
+    with pytest.raises(error) as raised:
+        LLMGateway(provider, MemoryRecorder(), Chosen()).complete_model(TASK, "s", "u", Out)
+    assert failed_model(raised.value) == "default"
+
+
+def test_an_error_from_elsewhere_carries_no_model() -> None:
+    assert failed_model(LLMError("x")) is None
