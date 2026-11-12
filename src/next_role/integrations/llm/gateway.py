@@ -30,6 +30,22 @@ from next_role.integrations.llm.resolver import ModelResolver, Resolved, StaticR
 logger = logging.getLogger(__name__)
 
 MAX_ERROR_CHARS = 500
+# Set on the error ``complete_model`` raises: the model its last attempt used.
+_MODEL_ATTR = "next_role_llm_model"
+
+
+def failed_model(exc: BaseException) -> str | None:
+    """The model the failed ``complete_model`` call last used, if ``exc`` came from one.
+
+    It is carried on the exception, not stored on the gateway, because one gateway serves
+    concurrent requests from the API's threadpool.
+    """
+    model = getattr(exc, _MODEL_ATTR, None)
+    return model if isinstance(model, str) else None
+
+
+def _stamp(exc: BaseException, model: str) -> None:
+    setattr(exc, _MODEL_ATTR, model)
 
 
 @dataclass(frozen=True)
@@ -112,7 +128,7 @@ class LLMGateway:
         The task's model and effort are resolved once, at the start of the call. If the
         provider says that model is unavailable, the same attempt is repeated once with the
         default model and its own effort (recorded as ``model_fallback``). After ``attempts``
-        failures the last error is raised unchanged.
+        failures the last error is raised, carrying the model it used (``failed_model``).
         """
         schema = model_cls.model_json_schema()
         resolved = self.resolver.resolve(task)
@@ -153,6 +169,7 @@ class LLMGateway:
                     resolved = self.resolver.for_model(task, default)
                     continue  # the same attempt, with the default model
                 if attempt == attempts:
+                    _stamp(exc, model)
                     raise
                 attempt += 1
                 continue
@@ -172,6 +189,7 @@ class LLMGateway:
                     latency_ms=latency,
                 )
                 if attempt == attempts:
+                    _stamp(exc, model)
                     raise
                 attempt += 1
                 continue
@@ -186,12 +204,15 @@ class LLMGateway:
             return Completed(result, model, resolved.reasoning_effort, self._label(resolved))
         raise LLMError("attempts must be at least 1")
 
-    def record_fallback(self, task: LLMTask, reason: str) -> None:
+    def record_fallback(self, task: LLMTask, reason: str, *, model: str | None = None) -> None:
         """Record that ``task`` used deterministic code instead of the model's output.
 
-        The row names the task's currently resolved model.
+        ``model`` is the model the call actually used: ``failed_model(exc)`` after an error,
+        or ``Completed.model`` when the output was unusable. That can differ from the task's
+        current resolution (after a ``model_fallback``, or a settings change since), which is
+        used only when the model is unknown.
         """
-        model = self.resolver.resolve(task).model
+        model = model or self.resolver.resolve(task).model
         self._record(task, LLMOutcome.DETERMINISTIC_FALLBACK, model, error=reason)
 
     def _dropped(

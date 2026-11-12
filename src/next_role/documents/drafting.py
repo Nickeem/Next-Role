@@ -50,7 +50,7 @@ from next_role.documents.snapshot import FactSnapshot, InputSnapshot
 from next_role.documents.text import fact_text, sentences, skills_in, year_month
 from next_role.documents.verification import SemanticRequest, Verdict
 from next_role.integrations.llm.base import LLMError, describe_error
-from next_role.integrations.llm.gateway import LLMGateway
+from next_role.integrations.llm.gateway import LLMGateway, failed_model
 from next_role.integrations.llm.models import LLMTask
 from next_role.jobs.extraction import requirement_key
 from next_role.matching.engine import MatchStatus
@@ -775,7 +775,9 @@ def draft(
         except (LLMError, ValidationError) as exc:
             logger.warning("llm resume drafting failed", extra={"error": describe_error(exc)})
             llm.record_fallback(
-                LLMTask.RESUME_DRAFTING, f"resume assembled from facts ({describe_error(exc)})"
+                LLMTask.RESUME_DRAFTING,
+                f"resume assembled from facts ({describe_error(exc)})",
+                model=failed_model(exc),
             )
             result.notes.append(
                 f"Resume assembled from facts: model failed ({describe_error(exc)})"
@@ -791,7 +793,9 @@ def draft(
         except (LLMError, ValidationError) as exc:
             logger.warning("llm letter drafting failed", extra={"error": describe_error(exc)})
             llm.record_fallback(
-                LLMTask.LETTER_DRAFTING, f"letter assembled from facts ({describe_error(exc)})"
+                LLMTask.LETTER_DRAFTING,
+                f"letter assembled from facts ({describe_error(exc)})",
+                model=failed_model(exc),
             )
             result.notes.append(
                 f"Letter assembled from facts: model failed ({describe_error(exc)})"
