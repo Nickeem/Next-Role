@@ -3,10 +3,11 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from next_role.config import LLMProviderName
 from next_role.integrations.llm.base import ReasoningEffort
+from next_role.integrations.llm.catalog import Tier
 from next_role.integrations.llm.models import LLMOutcome, LLMTask
 from next_role.integrations.llm.resolver import Source
 
@@ -65,3 +66,62 @@ class LLMStatusOut(BaseModel):
     allow_candidate_data: bool
     retention_days: int
     tasks: list[LLMTaskStatusOut]
+
+
+class LLMModelOut(BaseModel):
+    """A model the key can use that is in the catalog."""
+
+    id: str
+    tier: Tier
+    # Lowest first.
+    reasoning_efforts: list[ReasoningEffort]
+
+
+class LLMModelsOut(BaseModel):
+    # False when per-task selection is unavailable or the models could not be listed.
+    available: bool
+    # Why not, when ``available`` is false.
+    reason: str | None
+    # True when the latest refresh failed and an older listing is shown.
+    stale: bool
+    fetched_at: datetime | None
+    models: list[LLMModelOut]
+
+
+class LLMTaskModelOut(BaseModel):
+    task: LLMTask
+    # The saved choices; null means the default.
+    model: str | None
+    reasoning_effort: ReasoningEffort | None
+    # What calls use now, after the effort rules.
+    effective_model: str | None
+    effective_reasoning_effort: ReasoningEffort | None
+    model_source: Source | None
+    effort_source: Source | None
+    # The task's default effort, shown as "Default (...)".
+    default_reasoning_effort: ReasoningEffort
+
+
+class LLMTaskModelsOut(BaseModel):
+    # False when per-task selection is unavailable: every task then uses ``default_model``.
+    available: bool
+    reason: str | None
+    # NEXT_ROLE_LLM_MODEL.
+    default_model: str | None
+    tasks: list[LLMTaskModelOut]
+
+
+class LLMTaskChoice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Null clears the choice (the default is used).
+    model: str | None = Field(default=None, max_length=200)
+    reasoning_effort: ReasoningEffort | None = None
+
+
+class LLMTaskModelsUpdate(BaseModel):
+    """The tasks listed are replaced; tasks not listed keep their choices."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tasks: dict[LLMTask, LLMTaskChoice]

@@ -68,6 +68,19 @@ def selection_available(settings: Settings) -> bool:
     return urlsplit(settings.llm_base_url).hostname == OPENAI_HOST
 
 
+def selection_unavailable_reason(settings: Settings) -> str | None:
+    """Why per-task models cannot be chosen, for the Settings page; None when they can."""
+    if selection_available(settings):
+        return None
+    if settings.llm_provider is LLMProviderName.NONE:
+        return "No language model is configured (NEXT_ROLE_LLM_PROVIDER=none)."
+    return (
+        "Per-task models are available only with OpenAI (NEXT_ROLE_LLM_PROVIDER="
+        f"openai_compatible and base URL host {OPENAI_HOST}). Every task uses "
+        "NEXT_ROLE_LLM_MODEL."
+    )
+
+
 def resolve_effort(
     task: LLMTask,
     model: str,

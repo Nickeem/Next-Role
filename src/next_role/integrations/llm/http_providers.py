@@ -182,6 +182,23 @@ class OpenAICompatibleProvider(_HTTPProvider):
         )
         return True
 
+    def list_models(self) -> list[str]:
+        """``GET /v1/models``: the ids this key can use. Raises a redacted LLMError.
+
+        Only the ``id`` of each entry is read.
+        """
+        try:
+            response = self._client.get("/v1/models")
+            response.raise_for_status()
+            data = response.json()["data"]
+            if not isinstance(data, list):
+                raise TypeError("data is not a list")
+            return [m["id"] for m in data if isinstance(m, dict) and isinstance(m.get("id"), str)]
+        except httpx.HTTPStatusError as exc:
+            raise LLMError(f"{self.name} returned HTTP {exc.response.status_code}") from exc
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise LLMError(f"{self.name} model listing failed: {type(exc).__name__}") from exc
+
     def _model_unavailable(self, response: httpx.Response) -> bool:
         # OpenAI answers HTTP 404 with code "model_not_found" when the model does not exist or
         # the key cannot use it. Its error-code guide does not document this code, so it is

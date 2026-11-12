@@ -35,9 +35,12 @@ from next_role.errors import (
     NotFoundError,
     RateLimitedError,
 )
+from next_role.integrations.llm.base import LLMProvider
+from next_role.integrations.llm.discovery import ModelDiscovery
 from next_role.integrations.llm.factory import build_llm_provider
 from next_role.integrations.llm.gateway import LLMGateway, SessionRecorder
-from next_role.integrations.llm.resolver import ModelResolver, build_resolver
+from next_role.integrations.llm.http_providers import OpenAICompatibleProvider
+from next_role.integrations.llm.resolver import ModelResolver, build_resolver, selection_available
 from next_role.jobs.llm_extraction import LLMRequirementExtractor
 from next_role.jobs.service import RequirementExtractor, rule_based_extractor
 from next_role.logging_config import configure_logging, request_id_var
@@ -53,9 +56,10 @@ _STATUS_BY_ERROR: dict[type[DomainError], int] = {
 
 
 def _build_extractor(
-    settings: Settings, session_factory: sessionmaker[Session], resolver: ModelResolver
+    provider: LLMProvider | None,
+    session_factory: sessionmaker[Session],
+    resolver: ModelResolver,
 ) -> RequirementExtractor:
-    provider = build_llm_provider(settings)
     if provider is None:
         return rule_based_extractor
     logger.info(
@@ -84,8 +88,15 @@ def create_app(
     )
     # One resolver per process, shared by the extractor and the LLM routes (and its cache).
     app.state.llm_resolver = build_resolver(settings, app.state.session_factory)
+    # One provider (and HTTP client) for extraction and model discovery.
+    provider = build_llm_provider(settings)
     app.state.requirement_extractor = _build_extractor(
-        settings, app.state.session_factory, app.state.llm_resolver
+        provider, app.state.session_factory, app.state.llm_resolver
+    )
+    app.state.llm_discovery = (
+        ModelDiscovery(provider.list_models)
+        if isinstance(provider, OpenAICompatibleProvider) and selection_available(settings)
+        else None
     )
     app.state.login_throttle = LoginThrottle()
     # Read-only for the API: the renderer writes files (ADR 0007).
