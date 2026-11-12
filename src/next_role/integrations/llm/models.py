@@ -1,7 +1,10 @@
-"""Recorded LLM call events: one row per attempt, temperature drop, or fallback.
+"""Recorded LLM call events, and the model and reasoning effort chosen per task.
 
-Rows hold metadata only (task, model, outcome, redacted error, request params, latency),
-never prompts, messages, schemas or responses. They back ``GET /integrations/llm/status``.
+Event rows (one per attempt, temperature drop, or fallback) hold metadata only (task, model,
+outcome, redacted error, request params, latency), never prompts, messages, schemas or
+responses. They back ``GET /integrations/llm/status``.
+
+Adding an ``LLMTask`` value needs a migration: both tables have a check constraint on it.
 """
 
 from datetime import datetime
@@ -12,7 +15,8 @@ from sqlalchemy import DateTime, Enum, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from next_role.db import Base, IdMixin
+from next_role.db import Base, IdMixin, TimestampMixin
+from next_role.integrations.llm.base import ReasoningEffort
 
 
 class LLMTask(StrEnum):
@@ -30,6 +34,8 @@ class LLMOutcome(StrEnum):
     TEMPERATURE_DROPPED = "temperature_dropped"
     # The caller gave up on the model and used deterministic code instead.
     DETERMINISTIC_FALLBACK = "deterministic_fallback"
+    # The task's chosen model was unavailable; the attempt was repeated with the default.
+    MODEL_FALLBACK = "model_fallback"
 
 
 ERROR_OUTCOMES = frozenset({LLMOutcome.PROVIDER_ERROR, LLMOutcome.SCHEMA_INVALID})
@@ -65,4 +71,21 @@ class LLMCallEvent(IdMixin, Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class LLMTaskModel(TimestampMixin, Base):
+    """The model and reasoning effort chosen for one task (ADR 0008).
+
+    Deployment-wide, not per operator: the worker uses it whoever is signed in. A missing row
+    or a null column means the default (NEXT_ROLE_LLM_MODEL, or the task's default effort).
+    Rows are ignored, not deleted, when per-task selection is unavailable.
+    """
+
+    __tablename__ = "llm_task_models"
+
+    task: Mapped[LLMTask] = mapped_column(_enum(LLMTask, "llm_task"), primary_key=True)
+    model: Mapped[str | None] = mapped_column(String(200))
+    reasoning_effort: Mapped[ReasoningEffort | None] = mapped_column(
+        _enum(ReasoningEffort, "reasoning_effort")
     )

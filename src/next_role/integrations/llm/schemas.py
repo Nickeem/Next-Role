@@ -6,7 +6,9 @@ from typing import Any
 from pydantic import BaseModel
 
 from next_role.config import LLMProviderName
+from next_role.integrations.llm.base import ReasoningEffort
 from next_role.integrations.llm.models import LLMOutcome, LLMTask
+from next_role.integrations.llm.resolver import Source
 
 
 class LLMLastErrorOut(BaseModel):
@@ -14,7 +16,7 @@ class LLMLastErrorOut(BaseModel):
     message: str | None
     at: datetime
     model: str | None
-    # What was sent: model, temperature, response format type, timeout.
+    # What was sent: model, temperature, reasoning effort, response format type, timeout.
     params: dict[str, Any] | None
 
 
@@ -24,10 +26,25 @@ class LLMLastSuccessOut(BaseModel):
     latency_ms: int | None
 
 
+class LLMLastAttemptOut(BaseModel):
+    """The most recent request sent for a task, whatever its outcome."""
+
+    at: datetime
+    outcome: LLMOutcome
+    model: str | None
+    # The reasoning effort that request sent; null when none was sent.
+    reasoning_effort: str | None
+
+
 class LLMTaskStatusOut(BaseModel):
     task: LLMTask
-    # The model the task uses now (from settings); events show which model each call used.
+    # The model and effort the task uses now; events show what each call actually sent.
     model: str | None
+    # Null when no effort is sent (not OpenAI, or a model outside the catalog).
+    reasoning_effort: ReasoningEffort | None
+    # Whether each comes from a choice saved in Settings or from the default.
+    model_source: Source | None
+    effort_source: Source | None
     # False when the task does not call the model, e.g. drafting without the candidate-data
     # opt-in (ADR 0006).
     available: bool
@@ -36,6 +53,7 @@ class LLMTaskStatusOut(BaseModel):
     counts: dict[LLMOutcome, int]
     last_error: LLMLastErrorOut | None
     last_success: LLMLastSuccessOut | None
+    last_attempt: LLMLastAttemptOut | None
 
 
 class LLMStatusOut(BaseModel):

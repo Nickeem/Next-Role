@@ -75,6 +75,8 @@ def test_status_without_a_provider(client: TestClient) -> None:
             o.value for o in LLMOutcome
         }
         assert row["last_error"] is None and row["last_success"] is None
+        assert row["last_attempt"] is None and row["reasoning_effort"] is None
+        assert row["model_source"] is None and row["effort_source"] is None
 
 
 def test_status_requires_auth(settings: Settings, session_factory: sessionmaker[Session]) -> None:
@@ -124,6 +126,7 @@ def test_status_aggregates_per_task(
         "schema_invalid": 1,
         "temperature_dropped": 1,
         "deterministic_fallback": 1,
+        "model_fallback": 0,
     }
     assert extraction["counts_24h"] == {**extraction["counts"], "ok": 1, "provider_error": 0}
     # The latest error, not the latest event (the fallback is reported in counts).
@@ -131,6 +134,15 @@ def test_status_aggregates_per_task(
     assert extraction["last_error"]["params"] == PARAMS
     assert extraction["last_error"]["model"] == "gpt-x"
     assert extraction["last_success"]["latency_ms"] == 420
+    # Not OpenAI itself: the env model, no effort, and the latest request (not the fallback).
+    assert extraction["model_source"] == "default"
+    assert extraction["reasoning_effort"] is None and extraction["effort_source"] is None
+    assert extraction["last_attempt"] == {
+        "at": extraction["last_success"]["at"],
+        "outcome": "ok",
+        "model": "gpt-x",
+        "reasoning_effort": None,
+    }
 
     check = _task(body, LLMTask.SEMANTIC_CHECK)
     # Drafting and checks need the candidate-data opt-in (ADR 0006).

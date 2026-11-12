@@ -4,17 +4,28 @@ import { mockFetch } from "../test-utils";
 import type { LLMStatus, LLMTask, LLMTaskStatus } from "../types";
 import { Settings } from "./Settings";
 
-const ZERO = { ok: 0, provider_error: 0, schema_invalid: 0, temperature_dropped: 0, deterministic_fallback: 0 };
+const ZERO = {
+  ok: 0,
+  provider_error: 0,
+  schema_invalid: 0,
+  temperature_dropped: 0,
+  deterministic_fallback: 0,
+  model_fallback: 0,
+};
 
 function task(name: LLMTask, extra: Partial<LLMTaskStatus> = {}): LLMTaskStatus {
   return {
     task: name,
     model: "gpt-x",
+    reasoning_effort: null,
+    model_source: "default",
+    effort_source: null,
     available: true,
     counts_24h: ZERO,
     counts: ZERO,
     last_error: null,
     last_success: null,
+    last_attempt: null,
     ...extra,
   };
 }

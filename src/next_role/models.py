@@ -14,7 +14,7 @@ from next_role.documents.models import (
     GenerationInput,
     GenerationRun,
 )
-from next_role.integrations.llm.models import LLMCallEvent
+from next_role.integrations.llm.models import LLMCallEvent, LLMTaskModel
 from next_role.jobs.models import JobOpportunity, JobPosting, JobRequirement
 from next_role.matching.models import RequirementAssessment, SuitabilityAssessment
 from next_role.notifications.models import NotificationOutbox, NotificationPreferences
@@ -39,6 +39,7 @@ __all__ = [
     "JobPosting",
     "JobRequirement",
     "LLMCallEvent",
+    "LLMTaskModel",
     "NotificationOutbox",
     "NotificationPreferences",
     "OperatorSession",

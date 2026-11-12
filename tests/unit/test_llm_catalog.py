@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 import pytest
 from pydantic import BaseModel, SecretStr
+from sqlalchemy.orm import sessionmaker
 
 from next_role.config import LLMProviderName, Settings
 from next_role.integrations.llm import catalog
@@ -166,7 +167,8 @@ def test_selection_is_available_only_for_openai_itself(
 ) -> None:
     settings = _settings(**llm)
     assert selection_available(settings) is available
-    resolved = build_resolver(settings).resolve(LLMTask.EXTRACTION)
+    # An unbound session factory: no saved choices can load, so defaults apply.
+    resolved = build_resolver(settings, sessionmaker()).resolve(LLMTask.EXTRACTION)
     # Elsewhere every task keeps today's request shape, even for a catalogued model name.
     assert (resolved.reasoning_effort is not None) is available
 

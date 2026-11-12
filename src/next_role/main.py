@@ -37,7 +37,7 @@ from next_role.errors import (
 )
 from next_role.integrations.llm.factory import build_llm_provider
 from next_role.integrations.llm.gateway import LLMGateway, SessionRecorder
-from next_role.integrations.llm.resolver import build_resolver
+from next_role.integrations.llm.resolver import ModelResolver, build_resolver
 from next_role.jobs.llm_extraction import LLMRequirementExtractor
 from next_role.jobs.service import RequirementExtractor, rule_based_extractor
 from next_role.logging_config import configure_logging, request_id_var
@@ -53,7 +53,7 @@ _STATUS_BY_ERROR: dict[type[DomainError], int] = {
 
 
 def _build_extractor(
-    settings: Settings, session_factory: sessionmaker[Session]
+    settings: Settings, session_factory: sessionmaker[Session], resolver: ModelResolver
 ) -> RequirementExtractor:
     provider = build_llm_provider(settings)
     if provider is None:
@@ -62,7 +62,7 @@ def _build_extractor(
         "llm requirement extraction enabled",
         extra={"provider": provider.name, "external": provider.external},
     )
-    gateway = LLMGateway(provider, SessionRecorder(session_factory), build_resolver(settings))
+    gateway = LLMGateway(provider, SessionRecorder(session_factory), resolver)
     return LLMRequirementExtractor(gateway)
 
 
@@ -82,7 +82,11 @@ def create_app(
     app.state.session_factory = session_factory or get_sessionmaker(
         get_engine(settings.database_url)
     )
-    app.state.requirement_extractor = _build_extractor(settings, app.state.session_factory)
+    # One resolver per process, shared by the extractor and the LLM routes (and its cache).
+    app.state.llm_resolver = build_resolver(settings, app.state.session_factory)
+    app.state.requirement_extractor = _build_extractor(
+        settings, app.state.session_factory, app.state.llm_resolver
+    )
     app.state.login_throttle = LoginThrottle()
     # Read-only for the API: the renderer writes files (ADR 0007).
     app.state.artifact_store = LocalArtifactStore(settings.artifact_dir)

@@ -56,6 +56,8 @@ class LLMError(Exception):
     Messages are redacted by construction (provider name, HTTP status, or error type), never
     prompt or response content, so they are safe to log and show in notes. ``params`` and
     ``temperature_rejected`` describe the last request sent, when one was.
+    ``model_unavailable`` is set when the provider said the requested model does not exist or
+    this key cannot use it; it is classified from the error code, and the body is never kept.
     """
 
     def __init__(
@@ -63,10 +65,13 @@ class LLMError(Exception):
         message: str = "",
         params: RequestParams | None = None,
         temperature_rejected: RequestParams | None = None,
+        *,
+        model_unavailable: bool = False,
     ) -> None:
         super().__init__(message)
         self.params = params
         self.temperature_rejected = temperature_rejected
+        self.model_unavailable = model_unavailable
 
 
 def describe_error(exc: Exception) -> str:

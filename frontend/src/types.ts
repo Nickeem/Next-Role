@@ -209,11 +209,19 @@ export type LLMOutcome =
   | "provider_error"
   | "schema_invalid"
   | "temperature_dropped"
-  | "deterministic_fallback";
+  | "deterministic_fallback"
+  | "model_fallback";
+export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
+// Whether a task's model or effort was chosen in Settings or is the default.
+export type LLMChoiceSource = "override" | "default";
 
 export interface LLMTaskStatus {
   task: LLMTask;
   model: string | null;
+  // Null when no effort is sent (not OpenAI, or a model outside the catalog).
+  reasoning_effort: ReasoningEffort | null;
+  model_source: LLMChoiceSource | null;
+  effort_source: LLMChoiceSource | null;
   available: boolean;
   counts_24h: Record<LLMOutcome, number>;
   counts: Record<LLMOutcome, number>;
@@ -224,6 +232,13 @@ export interface LLMTaskStatus {
     params: Record<string, unknown> | null;
   } | null;
   last_success: { at: string; model: string | null; latency_ms: number | null } | null;
+  // The most recent request sent, whatever its outcome.
+  last_attempt: {
+    at: string;
+    outcome: LLMOutcome;
+    model: string | null;
+    reasoning_effort: string | null;
+  } | null;
 }
 
 export interface LLMStatus {

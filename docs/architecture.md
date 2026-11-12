@@ -58,8 +58,8 @@ Boundaries:
   for `extraction` (API process), `resume_drafting`, `letter_drafting` and `semantic_check`
   (worker). It validates the output with Pydantic, retries once on a provider or schema error,
   and writes an `llm_call_events` row per attempt (`ok`, `provider_error`, `schema_invalid`),
-  per dropped temperature (`temperature_dropped`), and per deterministic fallback, which
-  callers record with `record_fallback`. Rows are written in their own short transaction
+  per dropped temperature (`temperature_dropped`), per model fallback (`model_fallback`), and
+  per deterministic fallback, which callers record with `record_fallback`. Rows are written in their own short transaction
   through the process's session factory, because both processes call models and only the
   database sees both. A recording failure is logged and never fails the call. Rows hold the
   model, a redacted error and the request params actually sent (model, temperature, reasoning
@@ -67,9 +67,22 @@ Boundaries:
   The gateway asks its `ModelResolver` (`resolver.py`) for the task's model and reasoning
   effort once per call and passes both to the provider, so each row names the model that
   call used. `complete_model` returns the output with that model, effort and a label, which
-  extraction and drafting notes use (one note per drafted document). Today every task
-  resolves to `NEXT_ROLE_LLM_MODEL` with no effort (ADR 0008 adds per-task choices). The worker deletes
-  rows older than `NEXT_ROLE_LLM_EVENT_RETENTION_DAYS` (30). `GET
+  extraction and drafting notes use (one note per drafted document).
+- Model and effort resolution (ADR 0008). With OpenAI itself (`openai_compatible` and host
+  `api.openai.com`), both processes use a `DbResolver`: it reads `llm_task_models` at most
+  once every 5 seconds, so a change saved in one process reaches the other without a restart,
+  and keeps the last values if the database is unreachable. An override model wins over
+  `NEXT_ROLE_LLM_MODEL`; the effort is the override or the task default, then the model's
+  lowest supported effort if the model lacks it, and no effort for a model outside the
+  catalog (`catalog.py`). Elsewhere a `StaticResolver` gives every task
+  `NEXT_ROLE_LLM_MODEL` and no effort, and saved choices are ignored. If OpenAI answers that
+  the chosen model does not exist or the key cannot use it (HTTP 404, code
+  `model_not_found`), the gateway records `provider_error` and `model_fallback` and repeats
+  the attempt once with `NEXT_ROLE_LLM_MODEL` and that model's effort. A run resolves the
+  model per call, so a mid-run change can give a run's documents different models; each
+  document's note names its own. Adding an `LLMTask` value needs a migration: the check
+  constraints on `llm_call_events` and `llm_task_models` list the tasks.
+- The worker deletes `llm_call_events` rows older than `NEXT_ROLE_LLM_EVENT_RETENTION_DAYS` (30). `GET
   /api/v1/integrations/llm/status` and the Settings page summarize them per task.
 - Route handlers stay thin: validate input, call a service, serialize the result.
   Transactions are committed by the `get_session` dependency.
@@ -91,6 +104,7 @@ opportunity_reviews (candidate × opportunity) ─< review_events
 notification_outbox ─> opportunity_reviews (optional)
 notification_preferences (one row per operator)
 llm_call_events        (one row per model attempt or fallback; metadata only, pruned)
+llm_task_models        (one row per task: chosen model and effort; null = default)
 ```
 
 - **`candidate_facts`** is a single table for all fact types, discriminated by `fact_type`.

@@ -79,7 +79,7 @@ def generation_context(
     provider, reason = drafting_provider(settings, build_llm_provider(settings))
     return GenerationContext(
         factory=factory,
-        llm=LLMGateway(provider, SessionRecorder(factory), build_resolver(settings))
+        llm=LLMGateway(provider, SessionRecorder(factory), build_resolver(settings, factory))
         if provider
         else None,
         no_llm_reason=reason,
