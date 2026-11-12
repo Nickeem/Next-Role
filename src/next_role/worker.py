@@ -25,6 +25,7 @@ from next_role.documents.generation import GenerationContext, drafting_provider,
 from next_role.integrations.llm import status as llm_status
 from next_role.integrations.llm.factory import build_llm_provider
 from next_role.integrations.llm.gateway import LLMGateway, SessionRecorder
+from next_role.integrations.llm.resolver import build_resolver
 from next_role.integrations.ntfy import build_ntfy_publisher
 from next_role.logging_config import configure_logging
 from next_role.notifications.dispatcher import DispatchPolicy, dispatch_pending
@@ -78,7 +79,9 @@ def generation_context(
     provider, reason = drafting_provider(settings, build_llm_provider(settings))
     return GenerationContext(
         factory=factory,
-        llm=LLMGateway(provider, SessionRecorder(factory)) if provider else None,
+        llm=LLMGateway(provider, SessionRecorder(factory), build_resolver(settings))
+        if provider
+        else None,
         no_llm_reason=reason,
         lease=timedelta(seconds=settings.generation_lease_seconds),
         max_attempts=settings.generation_max_attempts,
