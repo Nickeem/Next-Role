@@ -241,6 +241,42 @@ export interface LLMTaskStatus {
   } | null;
 }
 
+export interface LLMModel {
+  id: string;
+  tier: "fast" | "strong";
+  // Lowest first.
+  reasoning_efforts: ReasoningEffort[];
+}
+
+export interface LLMModels {
+  available: boolean;
+  reason: string | null;
+  stale: boolean;
+  fetched_at: string | null;
+  models: LLMModel[];
+}
+
+export interface LLMTaskModel {
+  task: LLMTask;
+  // Saved choices; null means the default.
+  model: string | null;
+  reasoning_effort: ReasoningEffort | null;
+  effective_model: string | null;
+  effective_reasoning_effort: ReasoningEffort | null;
+  model_source: LLMChoiceSource | null;
+  effort_source: LLMChoiceSource | null;
+  default_reasoning_effort: ReasoningEffort;
+}
+
+export interface LLMTaskModels {
+  available: boolean;
+  reason: string | null;
+  default_model: string | null;
+  tasks: LLMTaskModel[];
+}
+
+export type LLMTaskChoice = Pick<LLMTaskModel, "model" | "reasoning_effort">;
+
 export interface LLMStatus {
   provider: "none" | "ollama" | "openai_compatible";
   enabled: boolean;

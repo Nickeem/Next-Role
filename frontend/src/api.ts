@@ -22,7 +22,11 @@ import type {
   ActivityItem,
   CandidateSummary,
   DecisionInput,
+  LLMModels,
   LLMStatus,
+  LLMTask,
+  LLMTaskChoice,
+  LLMTaskModels,
   NotificationPreferences,
   NtfyStatus,
   Page,
@@ -146,6 +150,10 @@ export const api = {
     request<NotificationPreferences>("PATCH", "/notification-preferences", update),
   ntfyStatus: () => request<NtfyStatus>("GET", "/integrations/ntfy/status"),
   llmStatus: () => request<LLMStatus>("GET", "/integrations/llm/status"),
+  llmModels: () => request<LLMModels>("GET", "/integrations/llm/models"),
+  llmTaskModels: () => request<LLMTaskModels>("GET", "/integrations/llm/task-models"),
+  saveLlmTaskModels: (tasks: Partial<Record<LLMTask, LLMTaskChoice>>) =>
+    request<LLMTaskModels>("PUT", "/integrations/llm/task-models", { tasks }),
   ntfyTest: () => request<{ outbox_id: string; status: string }>("POST", "/integrations/ntfy/test"),
 
   // Documents (Phase 3)

@@ -1,9 +1,19 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api } from "../api";
 import { ErrorState, Loading } from "../components/States";
 import { formatDateTime } from "../labels";
-import type { LLMStatus, LLMTask, LLMTaskStatus, NotificationPreferences } from "../types";
+import type {
+  LLMModel,
+  LLMModels,
+  LLMStatus,
+  LLMTask,
+  LLMTaskChoice,
+  LLMTaskModels,
+  LLMTaskStatus,
+  NotificationPreferences,
+  ReasoningEffort,
+} from "../types";
 import { useLoad } from "../useLoad";
 
 function NtfyCard() {
@@ -104,6 +114,14 @@ const PROVIDER_LABELS: Record<LLMStatus["provider"], string> = {
   openai_compatible: "OpenAI-compatible",
 };
 
+// Shown under the claim-check choice: it is the verification step, not a writing task.
+const SEMANTIC_CHECK_HINT =
+  "Decides whether drafted claims are supported by your facts. A weaker model or lower effort here lowers verification quality.";
+
+function withEffort(model: string | null, effort: string | null): string {
+  return effort ? `${model}, effort ${effort}` : (model ?? "");
+}
+
 function LLMTaskRow({ row, candidateData }: { row: LLMTaskStatus; candidateData: boolean }) {
   const c = row.counts_24h;
   const errors = c.provider_error + c.schema_invalid;
@@ -119,11 +137,12 @@ function LLMTaskRow({ row, candidateData }: { row: LLMTaskStatus; candidateData:
           </span>
         ) : (
           <>
-            <span>{row.model}</span>
+            <span>{withEffort(row.model, row.reasoning_effort)}</span>
             <span className="muted small">
               {" "}
               · 24 h: {c.ok} ok, {errors} failed, {c.deterministic_fallback} fell back
               {c.temperature_dropped > 0 && `, ${c.temperature_dropped} temperature dropped`}
+              {c.model_fallback > 0 && `, ${c.model_fallback} used the default model`}
             </span>
           </>
         )}
@@ -139,8 +158,199 @@ function LLMTaskRow({ row, candidateData }: { row: LLMTaskStatus; candidateData:
             {row.last_success.latency_ms !== null && ` in ${row.last_success.latency_ms} ms`}
           </div>
         )}
+        {row.last_attempt && (
+          <div className="muted small">
+            Last call sent {withEffort(row.last_attempt.model, row.last_attempt.reasoning_effort)}
+          </div>
+        )}
       </dd>
     </div>
+  );
+}
+
+type Choices = Record<LLMTask, LLMTaskChoice>;
+
+function choicesOf(data: LLMTaskModels): Choices {
+  const out = {} as Choices;
+  for (const t of data.tasks) out[t.task] = { model: t.model, reasoning_effort: t.reasoning_effort };
+  return out;
+}
+
+/** Per-task model and effort selects, limited to what the key can use and each model supports. */
+function TaskModelsForm({
+  taskModels,
+  models,
+  status,
+  onSaved,
+}: {
+  taskModels: LLMTaskModels;
+  models: LLMModels;
+  status: LLMStatus;
+  onSaved: () => void;
+}) {
+  const [choices, setChoices] = useState<Choices>(() => choicesOf(taskModels));
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setChoices(choicesOf(taskModels)), [taskModels]);
+
+  const byId = new Map<string, LLMModel>(models.models.map((m) => [m.id, m]));
+  const efforts = (model: string | null): ReasoningEffort[] =>
+    byId.get(model ?? taskModels.default_model ?? "")?.reasoning_efforts ?? [];
+  const lastCall = new Map(status.tasks.map((t) => [t.task, t.last_attempt]));
+
+  function setModel(task: LLMTask, model: string | null) {
+    setChoices((prev) => {
+      const effort = prev[task].reasoning_effort;
+      // Keep the effort only if the new model supports it.
+      const keep = effort !== null && efforts(model).includes(effort);
+      return { ...prev, [task]: { model, reasoning_effort: keep ? effort : null } };
+    });
+  }
+
+  async function save() {
+    setBusy(true);
+    setMessage(null);
+    setError(null);
+    try {
+      await api.saveLlmTaskModels(choices);
+      setMessage("Saved. The API and the worker use it within a few seconds.");
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      aria-labelledby="llm-models-title"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <h3 id="llm-models-title" className="card__title">
+        Model per task
+      </h3>
+      {models.stale && (
+        <p className="notice notice--warn">
+          Could not refresh the model list; showing the last one
+          {models.fetched_at && ` from ${formatDateTime(models.fetched_at)}`}.
+        </p>
+      )}
+      {taskModels.tasks.map((t) => {
+        const choice = choices[t.task];
+        const allowed = efforts(choice.model);
+        const last = lastCall.get(t.task);
+        const id = `llm-${t.task}`;
+        return (
+          <fieldset key={t.task} className="toggles">
+            <legend>{TASK_LABELS[t.task]}</legend>
+            <div className="filters">
+              <div className="field field--grow">
+                <label htmlFor={`${id}-model`}>Model</label>
+                <select
+                  id={`${id}-model`}
+                  value={choice.model ?? ""}
+                  onChange={(e) => setModel(t.task, e.target.value || null)}
+                >
+                  <option value="">Default ({taskModels.default_model})</option>
+                  {models.models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.id} ({m.tier})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor={`${id}-effort`}>Reasoning effort</label>
+                <select
+                  id={`${id}-effort`}
+                  value={choice.reasoning_effort ?? ""}
+                  disabled={allowed.length === 0}
+                  onChange={(e) =>
+                    setChoices((prev) => ({
+                      ...prev,
+                      [t.task]: {
+                        ...prev[t.task],
+                        reasoning_effort: (e.target.value || null) as ReasoningEffort | null,
+                      },
+                    }))
+                  }
+                >
+                  <option value="">Default ({t.default_reasoning_effort})</option>
+                  {allowed.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {effort}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <p className="muted small">
+              Uses {withEffort(t.effective_model, t.effective_reasoning_effort)}
+              {last && ` · last call sent ${withEffort(last.model, last.reasoning_effort)}`}
+            </p>
+            {t.task === "semantic_check" && <p className="small">{SEMANTIC_CHECK_HINT}</p>}
+          </fieldset>
+        );
+      })}
+      <p className="muted small">
+        Higher efforts are slower and cost more (reasoning is billed as output). A run picks the
+        model per call, so each document's note names the model that drafted it.
+      </p>
+      <button type="submit" className="btn btn--primary" disabled={busy}>
+        Save models
+      </button>
+      <p className="small" aria-live="polite">
+        {message}
+      </p>
+      {error && (
+        <p className="notice notice--error" role="alert">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
+/** The per-task selection, or why it is unavailable. The status rows stay either way. */
+function TaskModels({ status, onSaved }: { status: LLMStatus; onSaved: () => void }) {
+  const taskModels = useLoad(() => api.llmTaskModels(), "llm-task-models");
+  const available = taskModels.data?.available ?? false;
+  const models = useLoad(
+    () => (available ? api.llmModels() : Promise.resolve(null)),
+    `llm-models-${available}`,
+  );
+  if (taskModels.loading && !taskModels.data) return <Loading />;
+  if (taskModels.error) return <ErrorState error={taskModels.error} onRetry={taskModels.reload} />;
+  if (!taskModels.data) return null;
+  if (!taskModels.data.available) {
+    return <p className="muted small">{taskModels.data.reason}</p>;
+  }
+  if (models.loading && !models.data) return <Loading />;
+  if (models.error) return <ErrorState error={models.error} onRetry={models.reload} />;
+  if (!models.data) return null;
+  if (!models.data.available) {
+    return (
+      <p className="muted small">
+        Models cannot be chosen right now: {models.data.reason} Every task keeps its current
+        model.
+      </p>
+    );
+  }
+  return (
+    <TaskModelsForm
+      taskModels={taskModels.data}
+      models={models.data}
+      status={status}
+      onSaved={() => {
+        taskModels.reload();
+        onSaved();
+      }}
+    />
   );
 }
 
@@ -185,6 +395,7 @@ function LLMCard() {
             Counts cover the last 24 hours; events are kept for {data.retention_days} days. Nothing
             sent to or returned by the model is stored here.
           </p>
+          <TaskModels status={data} onSaved={status.reload} />
         </>
       )}
     </section>
