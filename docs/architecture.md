@@ -62,8 +62,13 @@ Boundaries:
   callers record with `record_fallback`. Rows are written in their own short transaction
   through the process's session factory, because both processes call models and only the
   database sees both. A recording failure is logged and never fails the call. Rows hold the
-  model, a redacted error and the request params actually sent (model, temperature, response
-  format type, timeout); never prompts, messages, schemas or responses. The worker deletes
+  model, a redacted error and the request params actually sent (model, temperature, reasoning
+  effort, response format type, timeout); never prompts, messages, schemas or responses.
+  The gateway asks its `ModelResolver` (`resolver.py`) for the task's model and reasoning
+  effort once per call and passes both to the provider, so each row names the model that
+  call used. `complete_model` returns the output with that model, effort and a label, which
+  extraction and drafting notes use (one note per drafted document). Today every task
+  resolves to `NEXT_ROLE_LLM_MODEL` with no effort (ADR 0008 adds per-task choices). The worker deletes
   rows older than `NEXT_ROLE_LLM_EVENT_RETENTION_DAYS` (30). `GET
   /api/v1/integrations/llm/status` and the Settings page summarize them per task.
 - Route handlers stay thin: validate input, call a service, serialize the result.

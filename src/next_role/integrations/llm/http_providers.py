@@ -1,12 +1,13 @@
 """HTTP adapters for Ollama and OpenAI-compatible chat-completions APIs."""
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
-from next_role.integrations.llm.base import Completion, LLMError, RequestParams
+from next_role.integrations.llm.base import Completion, LLMError, ReasoningEffort, RequestParams
 
 logger = logging.getLogger(__name__)
 
@@ -85,13 +86,22 @@ class OllamaProvider(_HTTPProvider):
 
     def _params(self, body: dict[str, Any]) -> RequestParams:
         temperature = body.get("options", {}).get("temperature")
-        return RequestParams(self.model, temperature, "json_schema", self.timeout)
+        return RequestParams(body["model"], temperature, "json_schema", self.timeout)
 
-    def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> Completion:
+    def complete_json(
+        self,
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        *,
+        model: str,
+        reasoning_effort: ReasoningEffort | None = None,
+    ) -> Completion:
+        # Ollama has no reasoning-effort parameter; ``reasoning_effort`` is ignored.
         data, sent = self._post(
             "/api/chat",
             {
-                "model": self.model,
+                "model": model,
                 "stream": False,
                 "format": schema,
                 "options": {"temperature": 0},
@@ -115,9 +125,28 @@ class OpenAICompatibleProvider(_HTTPProvider):
 
     name = "openai_compatible"
     external = True
-    # Some models (for example OpenAI reasoning models) accept only the default temperature
-    # and reject any explicit value with HTTP 400. Once seen, temperature is no longer sent.
-    _send_temperature = True
+
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        timeout: float,
+        api_key: str | None = None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        super().__init__(base_url, model, timeout, api_key, transport)
+        # Models seen rejecting an explicit temperature with HTTP 400 (for example OpenAI
+        # reasoning models sent no reasoning effort). Later calls to them omit it. Shared by
+        # request threads, hence the lock.
+        self._no_temperature: set[str] = set()
+        self._lock = threading.Lock()
+
+    def _sends_temperature(self, model: str, reasoning_effort: ReasoningEffort | None) -> bool:
+        if reasoning_effort is not None:
+            # Reasoning models accept a temperature only when the effort is ``none``.
+            return reasoning_effort is ReasoningEffort.NONE
+        with self._lock:
+            return model not in self._no_temperature
 
     def _retry_without_temperature(self, response: httpx.Response, body: dict[str, Any]) -> bool:
         if response.status_code != 400 or "temperature" not in body:
@@ -131,20 +160,36 @@ class OpenAICompatibleProvider(_HTTPProvider):
         error = payload.get("error") if isinstance(payload, dict) else None
         if not isinstance(error, dict) or error.get("param") != "temperature":
             return False
-        # A per-instance cache so later calls skip the rejected parameter. A race between
-        # threads costs at most one extra 400; what each call sent is reported in its result.
-        self._send_temperature = False
-        logger.info("model rejected temperature; using its default", extra={"provider": self.name})
+        # Remembered per model, so later calls to it skip the parameter. A race between threads
+        # costs at most one extra 400; what each call sent is reported in its result.
+        with self._lock:
+            self._no_temperature.add(body["model"])
+        logger.info(
+            "model rejected temperature; using its default",
+            extra={"provider": self.name, "model": body["model"]},
+        )
         return True
 
     def _params(self, body: dict[str, Any]) -> RequestParams:
         return RequestParams(
-            self.model, body.get("temperature"), body["response_format"]["type"], self.timeout
+            body["model"],
+            body.get("temperature"),
+            body["response_format"]["type"],
+            self.timeout,
+            body.get("reasoning_effort"),
         )
 
-    def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> Completion:
+    def complete_json(
+        self,
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        *,
+        model: str,
+        reasoning_effort: ReasoningEffort | None = None,
+    ) -> Completion:
         body: dict[str, Any] = {
-            "model": self.model,
+            "model": model,
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {"name": "result", "schema": schema, "strict": True},
@@ -154,7 +199,9 @@ class OpenAICompatibleProvider(_HTTPProvider):
                 {"role": "user", "content": user},
             ],
         }
-        if self._send_temperature:
+        if reasoning_effort is not None:
+            body["reasoning_effort"] = reasoning_effort.value
+        if self._sends_temperature(model, reasoning_effort):
             body["temperature"] = 0
         data, sent = self._post("/v1/chat/completions", body)
         try:

@@ -108,7 +108,7 @@ The response names the provider and its host only (never the base URL path or th
 checks without `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA`), `counts_24h` and `counts` (since the
 retention window, `NEXT_ROLE_LLM_EVENT_RETENTION_DAYS`, 30 days) by outcome, `last_error`
 (message, time, model, and the request params sent: model, whether and which temperature,
-response format type, timeout) and `last_success` (time, model, latency). Prompts, job text,
+reasoning effort, response format type, timeout) and `last_success` (time, model, latency). Prompts, job text,
 facts and model output are never stored or returned.
 
 The job in the response also shows what happened:
@@ -118,8 +118,9 @@ The job in the response also shows what happened:
 - `"extraction_method": "rules"` with notes such as
   `LLM extraction failed (LLMError); used rules` means it fell back. See Troubleshooting.
 
-For documents, a bundle's drafting notes say whether it was drafted by the model (for
-example `ollama/llama3.1:8b (drafting-v2)`) or assembled from your facts, and why.
+For documents, a bundle's drafting notes say, for each document, whether it was drafted by
+the model (for example `Resume: ollama/llama3.1:8b (drafting-v2)`) or assembled from your
+facts, and why.
 
 ## Behaviour and limits
 

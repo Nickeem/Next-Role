@@ -1,7 +1,19 @@
 """Provider-neutral interface for LLM calls that must return JSON matching a schema."""
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, Protocol
+
+
+class ReasoningEffort(StrEnum):
+    """OpenAI's ``reasoning_effort`` values, lowest first (the order is used for fallbacks)."""
+
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
 
 
 @dataclass(frozen=True)
@@ -13,12 +25,15 @@ class RequestParams:
     temperature: float | None
     response_format: str
     timeout_seconds: float
+    # None when no reasoning effort was sent (the model's default applies).
+    reasoning_effort: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "model": self.model,
             "temperature_sent": self.temperature is not None,
             "temperature": self.temperature,
+            "reasoning_effort": self.reasoning_effort,
             "response_format": self.response_format,
             "timeout_seconds": self.timeout_seconds,
         }
@@ -63,10 +78,22 @@ def describe_error(exc: Exception) -> str:
 
 class LLMProvider(Protocol):
     name: str
+    # The default model (NEXT_ROLE_LLM_MODEL). Each call names the model it uses.
     model: str
     # True when requests leave this server (a third-party API).
     external: bool
 
-    def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> Completion:
-        """Return the model's raw JSON text and the request params. Callers must validate it."""
+    def complete_json(
+        self,
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        *,
+        model: str,
+        reasoning_effort: ReasoningEffort | None = None,
+    ) -> Completion:
+        """Return the model's raw JSON text and the request params. Callers must validate it.
+
+        ``reasoning_effort`` is sent only when given; providers without the parameter ignore it.
+        """
         ...

@@ -1,8 +1,8 @@
 """The single entry point for LLM calls: call, validate, retry, and record what happened.
 
 Every call site goes through ``LLMGateway.complete_model`` so each attempt, schema failure,
-temperature drop and deterministic fallback is recorded per ``LLMTask``. Choosing a model per
-task, when it comes, belongs here too.
+temperature drop and deterministic fallback is recorded per ``LLMTask``. The model and reasoning
+effort for each call come from the injected ``ModelResolver``, asked once per call.
 
 Recording is best-effort: a failure to record is logged and never affects the call.
 """
@@ -16,8 +16,15 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session, sessionmaker
 
-from next_role.integrations.llm.base import LLMError, LLMProvider, RequestParams, describe_error
+from next_role.integrations.llm.base import (
+    LLMError,
+    LLMProvider,
+    ReasoningEffort,
+    RequestParams,
+    describe_error,
+)
 from next_role.integrations.llm.models import LLMCallEvent, LLMOutcome, LLMTask
+from next_role.integrations.llm.resolver import ModelResolver, Resolved, StaticResolver
 
 logger = logging.getLogger(__name__)
 
@@ -68,33 +75,61 @@ def _params(params: RequestParams | None) -> dict[str, Any] | None:
     return params.as_dict() if params else None
 
 
+@dataclass(frozen=True)
+class Completed[T: BaseModel]:
+    """Validated output and the model and effort that produced it."""
+
+    value: T
+    model: str
+    reasoning_effort: ReasoningEffort | None
+    # Provider, model and effort, for notes on stored results.
+    label: str
+
+
 class LLMGateway:
-    def __init__(self, provider: LLMProvider, recorder: EventRecorder | None = None) -> None:
+    def __init__(
+        self,
+        provider: LLMProvider,
+        recorder: EventRecorder | None = None,
+        resolver: ModelResolver | None = None,
+    ) -> None:
         self.provider = provider
         self._recorder = recorder
+        self.resolver = resolver or StaticResolver(provider.model)
 
-    @property
-    def label(self) -> str:
-        """Provider and model, for notes on stored results."""
-        return f"{self.provider.name}/{self.provider.model}"
+    def _label(self, resolved: Resolved) -> str:
+        label = f"{self.provider.name}/{resolved.model}"
+        if resolved.reasoning_effort is not None:
+            label += f", effort {resolved.reasoning_effort.value}"
+        return label
 
     def complete_model[T: BaseModel](
         self, task: LLMTask, system: str, user: str, model_cls: type[T], attempts: int = 2
-    ) -> T:
+    ) -> Completed[T]:
         """Return validated output, retrying on LLMError or ValidationError.
 
-        After ``attempts`` failures the last error is raised unchanged.
+        The task's model and effort are resolved once, at the start of the call. After
+        ``attempts`` failures the last error is raised unchanged.
         """
         schema = model_cls.model_json_schema()
+        resolved = self.resolver.resolve(task)
+        model = resolved.model
         for attempt in range(1, attempts + 1):
             started = time.perf_counter()
             try:
-                completion = self.provider.complete_json(system, user, schema)
+                completion = self.provider.complete_json(
+                    system,
+                    user,
+                    schema,
+                    model=model,
+                    reasoning_effort=resolved.reasoning_effort,
+                )
             except LLMError as exc:
-                self._dropped(task, attempt, exc.temperature_rejected)
+                self._dropped(task, model, attempt, exc.temperature_rejected)
                 self._record(
                     task,
                     LLMOutcome.PROVIDER_ERROR,
+                    model,
                     attempt=attempt,
                     error=describe_error(exc),
                     params=_params(exc.params),
@@ -104,7 +139,7 @@ class LLMGateway:
                     raise
                 continue
             latency = _since(started)
-            self._dropped(task, attempt, completion.temperature_rejected)
+            self._dropped(task, model, attempt, completion.temperature_rejected)
             try:
                 result = model_cls.model_validate_json(completion.text)
             except ValidationError as exc:
@@ -112,6 +147,7 @@ class LLMGateway:
                 self._record(
                     task,
                     LLMOutcome.SCHEMA_INVALID,
+                    model,
                     attempt=attempt,
                     error=type(exc).__name__,
                     params=_params(completion.params),
@@ -123,34 +159,42 @@ class LLMGateway:
             self._record(
                 task,
                 LLMOutcome.OK,
+                model,
                 attempt=attempt,
                 params=_params(completion.params),
                 latency_ms=latency,
             )
-            return result
+            return Completed(result, model, resolved.reasoning_effort, self._label(resolved))
         raise LLMError("attempts must be at least 1")
 
     def record_fallback(self, task: LLMTask, reason: str) -> None:
-        """Record that ``task`` used deterministic code instead of the model's output."""
-        self._record(task, LLMOutcome.DETERMINISTIC_FALLBACK, error=reason)
+        """Record that ``task`` used deterministic code instead of the model's output.
 
-    def _dropped(self, task: LLMTask, attempt: int, rejected: RequestParams | None) -> None:
+        The row names the task's currently resolved model.
+        """
+        model = self.resolver.resolve(task).model
+        self._record(task, LLMOutcome.DETERMINISTIC_FALLBACK, model, error=reason)
+
+    def _dropped(
+        self, task: LLMTask, model: str, attempt: int, rejected: RequestParams | None
+    ) -> None:
         if rejected is not None:
             self._record(
-                task, LLMOutcome.TEMPERATURE_DROPPED, attempt=attempt, params=_params(rejected)
+                task,
+                LLMOutcome.TEMPERATURE_DROPPED,
+                model,
+                attempt=attempt,
+                params=_params(rejected),
             )
 
-    def _record(self, task: LLMTask, outcome: LLMOutcome, **fields: Any) -> None:
+    def _record(self, task: LLMTask, outcome: LLMOutcome, model: str, **fields: Any) -> None:
+        """Record one event; ``model`` is the model this call resolved, not the default."""
         if self._recorder is None:
             return
         if fields.get("error"):
             fields["error"] = fields["error"][:MAX_ERROR_CHARS]
         event = CallEvent(
-            task=task,
-            outcome=outcome,
-            provider=self.provider.name,
-            model=self.provider.model,
-            **fields,
+            task=task, outcome=outcome, provider=self.provider.name, model=model, **fields
         )
         try:
             self._recorder.record(event)

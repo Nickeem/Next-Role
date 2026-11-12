@@ -48,7 +48,7 @@ def _content_free(events: list[CallEvent], *needles: str) -> None:
 
 def test_first_success_records_one_ok_attempt() -> None:
     llm, provider, recorder = _gateway('{"value": 1}')
-    assert llm.complete_model(TASK, "s", "u", Out) == Out(value=1)
+    assert llm.complete_model(TASK, "s", "u", Out).value == Out(value=1)
     assert len(provider.calls) == 1
     [event] = recorder.events
     assert (event.outcome, event.attempt, event.task) == (LLMOutcome.OK, 1, TASK)
@@ -57,6 +57,7 @@ def test_first_success_records_one_ok_attempt() -> None:
         "model": "fake-model",
         "temperature_sent": True,
         "temperature": 0,
+        "reasoning_effort": None,
         "response_format": "json_schema",
         "timeout_seconds": 60.0,
     }
@@ -64,7 +65,7 @@ def test_first_success_records_one_ok_attempt() -> None:
 
 def test_provider_error_is_retried_once_then_succeeds() -> None:
     llm, provider, recorder = _gateway(LLMError("fake returned HTTP 503"), '{"value": 2}')
-    assert llm.complete_model(TASK, "s", "u", Out).value == 2
+    assert llm.complete_model(TASK, "s", "u", Out).value.value == 2
     assert len(provider.calls) == 2
     assert recorder.outcomes() == ["provider_error", "ok"]
     assert recorder.events[0].error == "fake returned HTTP 503"
@@ -98,7 +99,7 @@ def test_other_exceptions_are_not_retried() -> None:
 
 def test_attempt_count_is_configurable_and_must_be_positive() -> None:
     llm, provider, _ = _gateway(LLMError("a"), LLMError("b"), '{"value": 3}')
-    assert llm.complete_model(TASK, "s", "u", Out, attempts=3).value == 3
+    assert llm.complete_model(TASK, "s", "u", Out, attempts=3).value.value == 3
     assert len(provider.calls) == 3
     with pytest.raises(LLMError, match="at least 1"):
         llm.complete_model(TASK, "s", "u", Out, attempts=0)
@@ -150,7 +151,7 @@ def test_rejected_temperature_is_recorded_with_the_params_actually_sent() -> Non
     captured: list[dict[str, Any]] = []
     recorder = MemoryRecorder()
     llm = LLMGateway(_openai(_rejects_temperature(captured)), recorder)
-    assert llm.complete_model(TASK, f"s {SECRET}", f"u {SECRET}", Out).value == 7
+    assert llm.complete_model(TASK, f"s {SECRET}", f"u {SECRET}", Out).value.value == 7
     assert ["temperature" in body for body in captured] == [True, False]
 
     dropped, ok = recorder.events
@@ -159,6 +160,7 @@ def test_rejected_temperature_is_recorded_with_the_params_actually_sent() -> Non
         "model": "gpt-x",
         "temperature_sent": True,
         "temperature": 0,
+        "reasoning_effort": None,
         "response_format": "json_schema",
         "timeout_seconds": 12,
     }
@@ -198,6 +200,7 @@ def test_ollama_params_report_options_temperature() -> None:
         "model": "llama3",
         "temperature_sent": True,
         "temperature": 0,
+        "reasoning_effort": None,
         "response_format": "json_schema",
         "timeout_seconds": 30,
     }
@@ -214,7 +217,7 @@ class BrokenRecorder:
 def test_a_failing_recorder_does_not_break_the_call(caplog: pytest.LogCaptureFixture) -> None:
     llm = LLMGateway(FakeProvider(LLMError("x"), '{"value": 5}'), BrokenRecorder())
     with caplog.at_level(logging.WARNING):
-        assert llm.complete_model(TASK, "s", "u", Out).value == 5
+        assert llm.complete_model(TASK, "s", "u", Out).value.value == 5
         llm.record_fallback(TASK, "reason")
     failures = [r for r in caplog.records if r.message == "failed to record llm call event"]
     assert len(failures) == 3
@@ -242,7 +245,7 @@ def test_an_unreachable_database_does_not_break_the_call() -> None:
     # Nothing listens on port 1: every write fails with a connection error.
     engine = create_engine("postgresql+psycopg://u:p@127.0.0.1:1/none?connect_timeout=1")
     llm = LLMGateway(FakeProvider('{"value": 6}'), SessionRecorder(sessionmaker(bind=engine)))
-    assert llm.complete_model(TASK, "s", "u", Out).value == 6
+    assert llm.complete_model(TASK, "s", "u", Out).value.value == 6
 
 
 def test_errors_are_truncated() -> None:
@@ -289,5 +292,15 @@ def test_drafting_failures_record_a_fallback_per_document(failing: str) -> None:
     task = LLMTask.RESUME_DRAFTING if failing == "resume" else LLMTask.LETTER_DRAFTING
     fallbacks = [e for e in recorder.events if e.outcome is LLMOutcome.DETERMINISTIC_FALLBACK]
     assert [(e.task, e.error) for e in fallbacks] == [(task, f"{failing} assembled from facts (x)")]
-    assert draft.notes[0] == "fake/fake-model (drafting-v2)"
+    # The model-written document's note names its model; the other says why it fell back.
+    if failing == "resume":
+        assert draft.notes == [
+            "Resume assembled from facts: model failed (x)",
+            "Cover letter: fake/fake-model (drafting-v2)",
+        ]
+    else:
+        assert draft.notes == [
+            "Resume: fake/fake-model (drafting-v2)",
+            "Letter assembled from facts: model failed (x)",
+        ]
     assert {e.task for e in recorder.events} == {LLMTask.RESUME_DRAFTING, LLMTask.LETTER_DRAFTING}
