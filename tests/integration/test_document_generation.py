@@ -494,3 +494,47 @@ def test_calls_are_recorded_and_a_failed_check_records_a_fallback(
         "Resume: fake/fake-model (drafting-v2)",
         "Cover letter: fake/fake-model (drafting-v2)",
     ]
+
+
+# --- Facts kept off documents (ADR 0009) ------------------------------------------------
+
+
+def test_excluded_facts_and_their_children_stay_out_of_drafts(
+    client: TestClient, session_factory: sessionmaker[Session], review: dict[str, Any]
+) -> None:
+    from next_role.documents.snapshot import build_snapshot
+    from next_role.matching.models import SuitabilityAssessment
+
+    cid = review["candidate_id"]
+    facts = client.get(f"/api/v1/candidates/{cid}").json()["facts"]
+    child = next(f for f in facts if f["parent_fact_id"])
+    parent = child["parent_fact_id"]
+    client.patch(f"/api/v1/candidates/{cid}/facts/{parent}", json={"include_in_documents": False})
+    with session_factory() as session:
+        assessment = session.scalars(select(SuitabilityAssessment)).one()
+        snap = build_snapshot(session, assessment.id)
+    ids = {str(f.id) for f in snap.facts}
+    assert parent not in ids and child["id"] not in ids
+    for req in snap.job.requirements:
+        cited = {str(i) for i in req.evidence_fact_ids}
+        assert req.excluded_only is (bool(cited) and cited <= {parent, child["id"]})
+    assert snap.candidate.headline == "Backend engineer (synthetic example profile)"
+
+
+def test_excluding_a_cited_fact_flags_the_documents_at_approval(
+    client: TestClient, session_factory: sessionmaker[Session], bundle: dict[str, Any]
+) -> None:
+    from next_role.documents import service
+    from next_role.documents.verification import stale_evidence
+
+    claims = [c for c in bundle["resume"]["verification"]["claims"] if c["status"] == "supported"]
+    cited = next(e for c in claims for e in c["evidence"])
+    cid = bundle["candidate_id"]
+    with session_factory() as session:
+        assert stale_evidence(claims, service.current_facts(session, uuid.UUID(cid))) == []
+    client.patch(f"/api/v1/candidates/{cid}/facts/{cited}", json={"include_in_documents": False})
+    with session_factory() as session:
+        stale = stale_evidence(claims, service.current_facts(session, uuid.UUID(cid)))
+    # Claims citing the fact (and facts under it, which are excluded with it) are flagged.
+    citing = {c["claim_id"] for c in claims if cited in c["evidence"]}
+    assert citing and citing <= set(stale)

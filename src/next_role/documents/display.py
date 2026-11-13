@@ -47,6 +47,8 @@ class Entry(BaseModel):
     subheading: str | None = None
     dates: str | None = None
     location: str | None = None
+    # Code-rendered details (credential ID and link, project link); never claims.
+    details: list[str] = []
     bullets: list[Text] = []
 
 
@@ -61,6 +63,7 @@ class DisplaySection(BaseModel):
 
 class DisplayHeader(BaseModel):
     name: str
+    headline: str | None = None
     contact: list[str]
 
 
@@ -76,7 +79,10 @@ class DisplayDocument(BaseModel):
 
     def texts(self) -> list[str]:
         """Every visible string in reading order, for checking rendered files."""
-        out = [self.header.name, *self.header.contact]
+        out = [self.header.name]
+        if self.header.headline:
+            out.append(self.header.headline)
+        out += self.header.contact
         if self.regarding:
             out.append(self.regarding)
         for section in self.sections:
@@ -85,6 +91,7 @@ class DisplayDocument(BaseModel):
                 out += [
                     x for x in (entry.heading, entry.subheading, entry.dates, entry.location) if x
                 ]
+                out += entry.details
                 out += [b.text for b in entry.bullets]
             out += [t.text for t in section.inline]
         if self.salutation:
@@ -122,7 +129,9 @@ def _header(header: Header) -> DisplayHeader:
     if header.contact.phone:
         contact.append(header.contact.phone)
     contact += [str(link.url).rstrip("/") for link in header.contact.links]
-    return DisplayHeader(name=header.name, contact=[c for c in contact if c])
+    return DisplayHeader(
+        name=header.name, headline=header.headline, contact=[c for c in contact if c]
+    )
 
 
 def _section(section: Section) -> DisplaySection:
@@ -159,6 +168,7 @@ def _section(section: Section) -> DisplaySection:
                         heading=i.name,
                         subheading=", ".join(x for x in (i.role, i.organization) if x) or None,
                         dates=date_range(i.start_date, i.end_date, i.is_current),
+                        details=[i.url] if i.url else [],
                         bullets=[Text(claim_id=b.claim_id, text=b.text) for b in i.bullets],
                     )
                     for i in section.items
@@ -189,6 +199,14 @@ def _section(section: Section) -> DisplaySection:
                         heading=i.name,
                         subheading=i.issuer,
                         dates=month(i.issued),
+                        details=[
+                            d
+                            for d in (
+                                f"Credential ID {i.credential_id}" if i.credential_id else None,
+                                i.credential_url,
+                            )
+                            if d
+                        ],
                     )
                     for i in section.items
                 ],

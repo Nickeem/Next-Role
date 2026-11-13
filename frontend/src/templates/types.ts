@@ -11,6 +11,8 @@ export interface DisplayEntry {
   subheading: string | null;
   dates: string | null;
   location: string | null;
+  // Code-rendered details (credential ID and link, project link); never claims.
+  details?: string[];
   bullets: DisplayText[];
 }
 
@@ -24,7 +26,7 @@ export interface DisplaySection {
 
 export interface DisplayDocument {
   kind: "resume" | "cover_letter";
-  header: { name: string; contact: string[] };
+  header: { name: string; headline?: string | null; contact: string[] };
   regarding: string | null;
   sections: DisplaySection[];
   salutation: string | null;

@@ -96,6 +96,8 @@ class _Writer:
         t = self.t
         name_color = t["accent"] if t["accent_name"] else t["text"]
         self.paragraph(display.header.name, size=t["name_pt"], bold=True, color=name_color, after=2)
+        if display.header.headline:
+            self.paragraph(display.header.headline, after=2)
         if display.header.contact:
             self.paragraph(
                 "  |  ".join(display.header.contact),
@@ -131,6 +133,8 @@ class _Writer:
             dates.font.size = Pt(t["small_pt"])
         if entry.location:
             self.paragraph(entry.location, size=t["small_pt"], color=t["muted"])
+        if entry.details:
+            self.paragraph("  ·  ".join(entry.details), size=t["small_pt"], color=t["muted"])
         for bullet in entry.bullets:
             self.paragraph(bullet.text, style="List Bullet")
 

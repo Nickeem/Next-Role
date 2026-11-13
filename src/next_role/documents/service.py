@@ -48,7 +48,12 @@ from next_role.documents.schemas import (
     iter_claims,
     parse_document,
 )
-from next_role.documents.snapshot import FactSnapshot, active_facts, fact_snapshot
+from next_role.documents.snapshot import (
+    FactSnapshot,
+    active_facts,
+    document_facts,
+    fact_snapshot,
+)
 from next_role.documents.verification import (
     CHECK_VERSION,
     Context,
@@ -197,7 +202,9 @@ def statements(session: Session, bundle_id: uuid.UUID) -> dict[str, str]:
 
 
 def current_facts(session: Session, candidate_id: uuid.UUID) -> dict[uuid.UUID, FactSnapshot]:
-    return {f.id: fact_snapshot(f) for f in active_facts(session, candidate_id)}
+    """Facts documents may cite now: a fact kept off documents since a draft is missing here,
+    so approval treats it like a retired one."""
+    return {f.id: fact_snapshot(f) for f in document_facts(active_facts(session, candidate_id))}
 
 
 def verification_context(
@@ -689,8 +696,8 @@ def approve(
             raise ConflictError("Some claims are not supported yet; resolve them first")
         if stale_evidence(latest.claims, facts):
             raise ConflictError(
-                "Facts these documents cite were edited, retired or unconfirmed since they were "
-                "checked; check again"
+                "Facts these documents cite were edited, retired, unconfirmed or kept off "
+                "documents since they were checked; check again"
             )
         document = parse_document(revision.content)
         recheck = verify(

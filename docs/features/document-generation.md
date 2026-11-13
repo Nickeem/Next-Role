@@ -46,8 +46,13 @@ the template, and finally approves the exact revisions and files.
    `latest_assessment_id` must equal the event's `assessment_id`. Otherwise the run fails
    with `stale_authorization`, and the UI asks the candidate to approve again.
 3. The worker writes an immutable **input snapshot**: job fields and requirements, the
-   assessment's requirement results, the candidate's display details, and every active fact
-   with its type, attributes, verification status, evidence links, and a content hash.
+   assessment's requirement results, the candidate's display details (name, headline,
+   location, contact), the about-me with its hash, and every active fact with its type,
+   attributes, verification status, evidence links, and a content hash. Facts the candidate
+   keeps off documents (`include_in_documents = false`), and the facts under them, are left
+   out, so drafting never cites them. A requirement whose assessment evidence is only such
+   facts is marked `excluded_only`: it is not sent to the model and no question is asked
+   about it ([ADR 0009](../decisions/0009-candidate-model-revisions.md)).
 4. **Evidence selection** (deterministic) ranks facts against the requirements and the
    assessment's matched evidence. Keyword overlap is relevance only; it never upgrades a
    fact's trust.
@@ -154,6 +159,11 @@ LLM emits this JSON. It never emits HTML, CSS, or file formats.
 - Section types: `summary`, `experience`, `projects`, `education`, `certifications`, `skills`.
 - Items carry `source_fact_id`. Organization, position, dates, institution, and credential
   name are copied from the fact by code, not written by the model.
+- The header's `headline` comes from the profile and is rendered by code, like the name; it
+  is never sent to the model. Certification items carry `credential_id` and
+  `credential_url`, and project items `url`: display details copied from the fact, checked
+  as protected fields when shown, and never claims or model input. Documents drafted before
+  these fields existed still verify.
 - The cover letter has `salutation`, `paragraphs[]` (each a list of claims, some citing
   evidence and some marked `connective`), and `closing`.
 - Limits: bullets per item, characters per bullet, and paragraph count, enforced by the
@@ -265,7 +275,9 @@ artifact hashes the operator saw. The server locks the bundle and checks:
 - all four artifacts (2 documents × 2 formats) are `ready`, and their QA passed;
 - verification passed: every claim is `supported` and there are no blocking issues;
 - no material clarification is open;
-- the trust and freshness rules in §6 hold;
+- the trust and freshness rules in §6 hold: a cited fact that was edited, retired,
+  unconfirmed, or kept off documents since the check (or sits under one kept off) flags the
+  documents, and the operator checks again;
 - the review is still `approved_for_drafting` for the same authorization event.
 
 It then records a `document_approvals` row and sets the bundle to `approved`. Any later
@@ -294,6 +306,8 @@ visibility. There is no free CSS, there are no user fonts, and the minimum body 
 - **PDF:** the renderer runs Chromium through Playwright, loads the bundled `print.html`,
   injects the JSON, blocks all network access, waits for fonts, measures overflow, and
   prints a text-based PDF. Render time and concurrency are bounded.
+- **Display details:** the headline under the name, and an entry's credential ID and links
+  in small muted text under its heading, in every template and in DOCX.
 - **DOCX:** `python-docx` maps sections to native Word styles (headings, body, list bullets).
   Text is never rendered as an image. The goal is close branding and the same content, not
   pixel parity with the PDF. Known differences are documented.
