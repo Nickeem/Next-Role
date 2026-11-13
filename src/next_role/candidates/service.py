@@ -11,6 +11,7 @@ from next_role.candidates.models import (
     Candidate,
     CandidateFact,
     EvidenceSource,
+    FactOrigin,
     FactType,
     VerificationStatus,
 )
@@ -56,7 +57,7 @@ def candidate_out(candidate: Candidate, include_retired: bool = False) -> Candid
         id=candidate.id,
         full_name=candidate.full_name,
         headline=candidate.headline,
-        summary=candidate.summary,
+        about_me=candidate.about_me,
         location=candidate.location,
         contact=CandidateContact.model_validate(candidate.contact or {}),
         preferences=CandidatePreferences.model_validate(candidate.preferences),
@@ -83,7 +84,9 @@ def _new_evidence(session: Session, candidate: Candidate, data: EvidenceSourceIn
     return evidence
 
 
-def _new_fact(session: Session, candidate: Candidate, data: FactIn) -> CandidateFact:
+def _new_fact(
+    session: Session, candidate: Candidate, data: FactIn, origin: FactOrigin
+) -> CandidateFact:
     record = data.to_record()
     verified = data.verification_status is VerificationStatus.USER_VERIFIED
     fact = CandidateFact(
@@ -91,6 +94,8 @@ def _new_fact(session: Session, candidate: Candidate, data: FactIn) -> Candidate
         **record.model_dump(),
         verification_status=data.verification_status,
         verified_at=_now() if verified else None,
+        origin=origin,
+        include_in_documents=data.include_in_documents,
     )
     session.add(fact)
     return fact
@@ -100,7 +105,7 @@ def create_candidate_profile(session: Session, payload: CandidateProfileIn) -> C
     candidate = Candidate(
         full_name=payload.full_name,
         headline=payload.headline,
-        summary=payload.summary,
+        about_me=payload.about_me,
         location=payload.location,
         contact=payload.contact.model_dump(mode="json", exclude_none=True),
         preferences=payload.preferences.model_dump(mode="json"),
@@ -115,7 +120,7 @@ def create_candidate_profile(session: Session, payload: CandidateProfileIn) -> C
     facts_by_key: dict[str, CandidateFact] = {}
     pending_parents: list[tuple[CandidateFact, str]] = []
     for fact_in in payload.facts:
-        fact = _new_fact(session, candidate, fact_in)
+        fact = _new_fact(session, candidate, fact_in, FactOrigin.IMPORT)
         fact.evidence_sources = [evidence_by_key[k] for k in fact_in.evidence_keys]
         if fact_in.key:
             facts_by_key[fact_in.key] = fact
@@ -201,11 +206,21 @@ def get_fact(session: Session, candidate_id: uuid.UUID, fact_id: uuid.UUID) -> C
     return fact
 
 
-def add_fact(session: Session, candidate_id: uuid.UUID, data: FactIn) -> CandidateFact:
+def _single_fact_input(data: FactIn) -> None:
     if data.key or data.evidence_keys or data.parent_key:
-        raise InvalidInputError("Use evidence_source_ids/parent_fact_id when adding a single fact")
+        raise InvalidInputError("Use evidence_source_ids/parent_fact_id for a single fact")
+
+
+def add_fact(
+    session: Session,
+    candidate_id: uuid.UUID,
+    data: FactIn,
+    origin: FactOrigin = FactOrigin.API,
+) -> CandidateFact:
+    """Add one fact. ``origin`` is set by the caller (the web workspace passes ``manual``)."""
+    _single_fact_input(data)
     candidate = get_candidate(session, candidate_id)
-    fact = _new_fact(session, candidate, data)
+    fact = _new_fact(session, candidate, data, origin)
     fact.evidence_sources = _owned_evidence(session, candidate_id, data.evidence_source_ids)
     if data.parent_fact_id:
         fact.parent_fact_id = get_fact(session, candidate_id, data.parent_fact_id).id
@@ -266,11 +281,53 @@ def update_fact(
 
     if data.evidence_source_ids is not None:
         fact.evidence_sources = _owned_evidence(session, candidate_id, data.evidence_source_ids)
+    if data.include_in_documents is not None:
+        fact.include_in_documents = data.include_in_documents
 
     if data.verification_status is not None:
         _set_verification(fact, data.verification_status)
     elif content_changed and fact.verification_status is VerificationStatus.USER_VERIFIED:
         # A confirmation applies to the content that was confirmed, not to edits made later.
+        _set_verification(fact, VerificationStatus.SELF_REPORTED)
+    session.flush()
+    return fact
+
+
+def replace_fact(
+    session: Session, candidate_id: uuid.UUID, fact_id: uuid.UUID, data: FactIn
+) -> CandidateFact:
+    """Replace a fact's content with a typed body, validated as on creation.
+
+    The type cannot change. Evidence links, the parent and ``include_in_documents`` are
+    replaced too. Changed content resets a confirmed fact to self-reported unless
+    ``verification_status`` is sent in the same request (the rule ``update_fact`` uses).
+    """
+    _single_fact_input(data)
+    fact = get_fact(session, candidate_id, fact_id)
+    if fact.retired_at is not None:
+        raise InvalidInputError("Retired facts cannot be modified")
+    if data.fact_type != fact.fact_type:
+        raise InvalidInputError(
+            f"This fact is a {fact.fact_type.value}; its type cannot be changed"
+        )
+    parent_id = None
+    if data.parent_fact_id is not None:
+        if data.parent_fact_id == fact.id:
+            raise InvalidInputError("A fact cannot be its own parent")
+        parent_id = get_fact(session, candidate_id, data.parent_fact_id).id
+
+    content_changed = parent_id != fact.parent_fact_id
+    fact.parent_fact_id = parent_id
+    for field, value in data.to_record().model_dump(exclude={"fact_type"}).items():
+        if value != getattr(fact, field):
+            setattr(fact, field, value)
+            content_changed = True
+    fact.evidence_sources = _owned_evidence(session, candidate_id, data.evidence_source_ids)
+    fact.include_in_documents = data.include_in_documents
+
+    if "verification_status" in data.model_fields_set:
+        _set_verification(fact, data.verification_status)
+    elif content_changed and fact.verification_status is VerificationStatus.USER_VERIFIED:
         _set_verification(fact, VerificationStatus.SELF_REPORTED)
     session.flush()
     return fact

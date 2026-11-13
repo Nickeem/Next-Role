@@ -114,6 +114,11 @@ llm_task_models        (one row per task: chosen model and effort; null = defaul
   Type-specific fields live in JSONB `attributes`, validated per type (ADR 0002).
   Provenance is recorded as `verification_status` (`self_reported` or `user_verified`, with
   `verified_at`) plus `fact_evidence` links. Facts are retired (soft-deleted), not removed.
+  Each fact records its `origin` (`manual`, `api`, `import`, `document_question`) and
+  `include_in_documents`; neither is content, so neither resets a confirmation (ADR 0009).
+  `PUT .../facts/{id}` replaces a fact with the typed creation body; `PATCH` is kept for
+  non-content changes. `candidates.about_me` (2,000 characters) is the candidate's
+  self-description, never confirmed and never used by matching.
 - **`job_opportunities`** holds normalized fields. Unknown values stay null or `unknown`.
   The table has a lifecycle `status` (`active`/`archived`), dedup keys (`canonical_url`, which
   is unique, and `identity_key`), and records how requirements were extracted

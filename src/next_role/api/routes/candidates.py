@@ -86,6 +86,19 @@ def get_fact(
     return service.fact_out(service.get_fact(session, candidate_id, fact_id))
 
 
+@router.put("/{candidate_id}/facts/{fact_id}")
+def replace_fact(
+    candidate_id: uuid.UUID,
+    fact_id: uuid.UUID,
+    payload: FactIn = Body(...),
+    session: Session = Depends(get_session),
+) -> FactOut:
+    """Replace a fact's content with the same typed body as creation; the type cannot change.
+
+    Changed content resets a confirmed fact unless ``verification_status`` is sent too."""
+    return service.fact_out(service.replace_fact(session, candidate_id, fact_id, payload))
+
+
 @router.patch("/{candidate_id}/facts/{fact_id}")
 def update_fact(
     candidate_id: uuid.UUID,
@@ -93,6 +106,7 @@ def update_fact(
     payload: FactUpdate,
     session: Session = Depends(get_session),
 ) -> FactOut:
+    """Partial update. Deprecated for content edits: use PUT, which validates per type."""
     return service.fact_out(service.update_fact(session, candidate_id, fact_id, payload))
 
 

@@ -20,6 +20,7 @@ from next_role.candidates.models import (
     CandidateFact,
     EvidenceKind,
     EvidenceSource,
+    FactOrigin,
     FactType,
     VerificationStatus,
 )
@@ -475,10 +476,10 @@ def _clarification(session: Session, clarification_id: uuid.UUID) -> Clarificati
     return row
 
 
-def _user_statement(session: Session, candidate_id: uuid.UUID, title: str) -> EvidenceSource:
-    source = EvidenceSource(
-        candidate_id=candidate_id, kind=EvidenceKind.USER_STATEMENT, title=title[:300]
-    )
+# Matching rules-v1 counts a fact with any evidence source; this keeps answers counting
+# until rules-v2, where only confirmation does (ADR 0009).
+def _answer_source(session: Session, candidate_id: uuid.UUID, title: str) -> EvidenceSource:
+    source = EvidenceSource(candidate_id=candidate_id, kind=EvidenceKind.OTHER, title=title[:300])
     session.add(source)
     return source
 
@@ -512,9 +513,10 @@ def answer_clarification(
             attributes={"metrics": []},
             verification_status=VerificationStatus.SELF_REPORTED,
             parent_fact_id=parent,
+            origin=FactOrigin.DOCUMENT_QUESTION,
         )
         fact.evidence_sources = [
-            _user_statement(session, bundle.candidate_id, "Answer to a document question")
+            _answer_source(session, bundle.candidate_id, "Answer to a document question")
         ]
         session.add(fact)
         session.flush()
@@ -549,8 +551,9 @@ def confirm_claim_as_fact(
 ) -> DocumentRevision:
     """The candidate attests that a claim is true as written (specification §6).
 
-    Its text becomes a new confirmed fact, with a user-statement evidence source, and a new
-    revision cites that fact. Verification then supports the claim verbatim.
+    Its text becomes a new confirmed fact (origin ``document_question``, no evidence source:
+    the confirmation is the attestation), and a new revision cites that fact. Verification
+    then supports the claim verbatim.
     """
     bundle = _open_bundle(session, bundle_id, expected_version)
     current = current_revision(session, bundle.id, kind)
@@ -576,10 +579,8 @@ def confirm_claim_as_fact(
         verification_status=VerificationStatus.USER_VERIFIED,
         verified_at=now,
         parent_fact_id=ref.item.source_fact_id if ref.item else None,
+        origin=FactOrigin.DOCUMENT_QUESTION,
     )
-    fact.evidence_sources = [
-        _user_statement(session, bundle.candidate_id, "Confirmed while reviewing a document")
-    ]
     session.add(fact)
     session.flush()
 

@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import (
     ARRAY,
+    Boolean,
     Date,
     DateTime,
     Enum,
@@ -20,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -50,8 +52,23 @@ class EvidenceKind(StrEnum):
     PORTFOLIO = "portfolio"
     PROFILE = "profile"
     REFERENCE = "reference"
-    USER_STATEMENT = "user_statement"
     OTHER = "other"
+
+
+class FactOrigin(StrEnum):
+    """How a fact was created. Not part of its content: it never affects matching."""
+
+    # Entered in the web workspace.
+    MANUAL = "manual"
+    # Added through the single-fact API.
+    API = "api"
+    # Part of a profile import (POST /candidates).
+    IMPORT = "import"
+    # An answer to a document question, or a claim confirmed in the document editor.
+    DOCUMENT_QUESTION = "document_question"
+
+
+ABOUT_ME_MAX = 2000
 
 
 def _enum(enum_cls: type[StrEnum], name: str) -> Enum:
@@ -70,7 +87,9 @@ class Candidate(IdMixin, TimestampMixin, Base):
 
     full_name: Mapped[str] = mapped_column(String(200))
     headline: Mapped[str | None] = mapped_column(String(300))
-    summary: Mapped[str | None] = mapped_column(Text)
+    # The candidate's self-description (voice, motivation, working style). Self-reported and
+    # never confirmed; personal statements in documents may cite it (ADR 0009).
+    about_me: Mapped[str | None] = mapped_column(String(ABOUT_ME_MAX))
     location: Mapped[str | None] = mapped_column(String(200))
     # Validated by next_role.candidates.schemas.CandidateContact.
     contact: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
@@ -140,6 +159,9 @@ class CandidateFact(IdMixin, TimestampMixin, Base):
         _enum(VerificationStatus, "verification_status"), default=VerificationStatus.SELF_REPORTED
     )
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    origin: Mapped[FactOrigin] = mapped_column(_enum(FactOrigin, "fact_origin"))
+    # False keeps the fact off generated documents; it still counts for matching.
+    include_in_documents: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     # E.g. an achievement belongs to an experience or project.
     parent_fact_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("candidate_facts.id", ondelete="SET NULL")

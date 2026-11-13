@@ -201,15 +201,17 @@ no bare acknowledgement. The operator resolves a claim in one of three ways:
 - edit or remove it (a new revision, verified again);
 - regenerate the section;
 - **confirm it as a fact**: the claim's text becomes a new `user_verified` candidate fact
-  with a `user_statement` evidence source, and a system revision adds that fact to the
+  with origin `document_question` and no evidence source (the confirmation is the
+  attestation), and a system revision adds that fact to the
   claim's `evidence_ids`. The claim is then supported verbatim by a confirmed fact, and the
   candidate's attestation is recorded with provenance like any other fact.
 
 This applies equally to drafted and operator-edited text, with or without an LLM.
 
 **Clarification answers.** An answer that is a career fact (for example "Did Project X have
-a measurable result?") is proposed as a new `candidate_fact` with an evidence source of kind
-`user_statement`. It is used only after the operator confirms it. Letter-only answers (for
+a measurable result?") is proposed as a new unconfirmed `candidate_fact` with origin
+`document_question` (and, until matching `rules-v2`, an evidence source of kind `other`). It
+is used only after the operator confirms it. Letter-only answers (for
 example motivation for the company) stay on the clarification request and are cited as
 `operator_statement` evidence for that bundle only.
 

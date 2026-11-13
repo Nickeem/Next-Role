@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from next_role.candidates.models import CandidateFact, VerificationStatus
+from next_role.candidates.models import CandidateFact, FactOrigin, VerificationStatus
 from next_role.documents import generation, runs
 from next_role.documents.models import DocumentBundle, DocumentRevision, GenerationRun
 from next_role.documents.workflow import RunStatus
@@ -146,7 +146,8 @@ def test_edit_creates_a_revision_that_is_checked_by_the_worker(
         assert fact is not None
         assert fact.verification_status is VerificationStatus.USER_VERIFIED
         assert fact.parent_fact_id == uuid.UUID(experience["items"][0]["source_fact_id"])
-        assert [e.kind.value for e in fact.evidence_sources] == ["user_statement"]
+        assert fact.evidence_sources == []
+        assert fact.origin is FactOrigin.DOCUMENT_QUESTION
 
 
 def test_confirming_profile_facts_and_rechecking_unblocks_claims(
@@ -230,6 +231,7 @@ def test_career_answers_become_unconfirmed_facts(
         fact = session.get(CandidateFact, uuid.UUID(fact_id))
         assert fact is not None
         assert fact.verification_status is VerificationStatus.SELF_REPORTED
+        assert fact.origin is FactOrigin.DOCUMENT_QUESTION
         assert str(fact.parent_fact_id) == metric["key"].split(":", 1)[1]
 
 

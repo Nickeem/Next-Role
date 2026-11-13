@@ -2,7 +2,7 @@
   "schema_version": "candidate-profile/v1",
   "full_name": "Alex Example",
   "headline": "Backend engineer (synthetic example profile)",
-  "summary": "Synthetic candidate used for documentation and tests. Not a real person.",
+  "about_me": "Synthetic candidate used for documentation and tests. Not a real person. I enjoy turning slow, fragile systems into calm, observable ones, and I like working in small teams that write things down.",
   "location": "Toronto, ON, Canada",
   "contact": {
     "email": "alex@example.invalid",
@@ -54,7 +54,6 @@
       "start_date": "2018-03-01",
       "end_date": "2022-06-30",
       "location": "Toronto, ON",
-      "employment_type": "full_time",
       "responsibilities": [
         "Built REST APIs in Python and Django for shipment tracking",
         "Maintained PostgreSQL schemas and query performance",
@@ -83,7 +82,6 @@
       "fact_type": "skill",
       "name": "Python",
       "category": "technical",
-      "proficiency": "expert",
       "years_experience": 8,
       "verification_status": "user_verified"
     },
@@ -91,20 +89,17 @@
       "fact_type": "skill",
       "name": "PostgreSQL",
       "category": "technical",
-      "proficiency": "advanced",
       "verification_status": "user_verified"
     },
     {
       "fact_type": "skill",
       "name": "Kubernetes",
-      "category": "technical",
-      "proficiency": "beginner"
+      "category": "technical"
     },
     {
       "fact_type": "skill",
       "name": "English",
       "category": "language",
-      "proficiency": "expert",
       "verification_status": "user_verified"
     },
     {
