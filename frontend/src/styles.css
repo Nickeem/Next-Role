@@ -1014,6 +1014,16 @@ a {
 }
 
 .check-badge,
+.tag {
+  display: inline-block;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .claim {
   display: inline-block;
   border-radius: 999px;

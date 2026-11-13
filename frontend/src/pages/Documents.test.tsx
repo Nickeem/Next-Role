@@ -401,3 +401,26 @@ test("focus stays in the approval dialog while the approval is sent", async () =
   await user.tab({ shift: true });
   expect(cancel).toHaveFocus();
 });
+
+test("a claim resting on the about-me is labelled a personal statement", async () => {
+  const base = bundle();
+  const personal = {
+    claim_id: "exp-1-b1",
+    path: "/sections/0/claims/0",
+    status: "needs_review" as const,
+    verdict: null,
+    evidence: { "about:me": "h" },
+    issues: [{ code: "awaiting_check", message: "Waiting for the wording check", blocking: true }],
+  };
+  const resume = {
+    ...base.resume!,
+    verification: { ...base.resume!.verification!, claims: [personal] },
+  };
+  routes(() => ({ ...base, resume }));
+  renderPage();
+
+  const checks = await screen.findByRole("list", { name: "Statements to resolve in the resume" });
+  expect(within(checks).getByText("Personal statement")).toBeVisible();
+  // The about-me is not a fact to confirm.
+  expect(within(checks).queryByRole("button", { name: /Confirm “/ })).toBeNull();
+});

@@ -17,6 +17,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from next_role.candidates.models import (
+    Candidate,
     CandidateFact,
     FactOrigin,
     FactType,
@@ -50,6 +51,7 @@ from next_role.documents.schemas import (
 )
 from next_role.documents.snapshot import (
     FactSnapshot,
+    about_me_hash,
     active_facts,
     document_facts,
     fact_snapshot,
@@ -207,14 +209,23 @@ def current_facts(session: Session, candidate_id: uuid.UUID) -> dict[uuid.UUID, 
     return {f.id: fact_snapshot(f) for f in document_facts(active_facts(session, candidate_id))}
 
 
+def current_about_me(session: Session, candidate_id: uuid.UUID) -> str | None:
+    """The about-me as it is now, which personal statements are checked against."""
+    candidate = session.get(Candidate, candidate_id)
+    return candidate.about_me if candidate else None
+
+
 def verification_context(
     facts: Mapping[uuid.UUID, FactSnapshot],
     statements_by_id: Mapping[str, str],
     target: Target,
     semantic_available: bool,
     verdicts: Mapping[str, Verdict] | None = None,
+    about_me: str | None = None,
 ) -> Context:
     return Context(
+        about_me=about_me,
+        about_me_hash=about_me_hash(about_me),
         facts=facts,
         statements=statements_by_id,
         connective_templates=connective_templates(target),
@@ -687,6 +698,7 @@ def approve(
         raise ConflictError("Answer or dismiss the open required questions first")
 
     facts = current_facts(session, bundle.candidate_id)
+    about_me = current_about_me(session, bundle.candidate_id)
     statements_by_id = statements(session, bundle.id)
     verdicts = known_verdicts(session, bundle.id)
     verifications = []
@@ -694,15 +706,17 @@ def approve(
         latest = latest_verification(session, revision.id)
         if latest is None or latest.status is not VerificationOutcome.PASSED:
             raise ConflictError("Some claims are not supported yet; resolve them first")
-        if stale_evidence(latest.claims, facts):
+        if stale_evidence(latest.claims, facts, about_me_hash(about_me)):
             raise ConflictError(
-                "Facts these documents cite were edited, retired, unconfirmed or kept off "
-                "documents since they were checked; check again"
+                "Facts or the about-me these documents cite were edited, retired, unconfirmed "
+                "or kept off documents since they were checked; check again"
             )
         document = parse_document(revision.content)
         recheck = verify(
             document,
-            verification_context(facts, statements_by_id, document.target, True, verdicts),
+            verification_context(
+                facts, statements_by_id, document.target, True, verdicts, about_me
+            ),
         )
         if recheck.outcome is not VerificationOutcome.PASSED:
             raise ConflictError("The documents no longer pass their checks; check again")

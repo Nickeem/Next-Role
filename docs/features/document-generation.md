@@ -199,6 +199,39 @@ Checks, in order. Each claim ends as `supported`, `needs_review`, or `unsupporte
    those facts are `user_verified` (maintainer decision). Confirming a fact from the review
    page calls the existing verify endpoint.
 
+### 6.1 Personal statements
+
+Personal statements may cite the about-me; factual claims must cite facts
+([ADR 0009](../decisions/0009-candidate-model-revisions.md)). The profile's `about_me` is the
+candidate's self-description (voice, motivation, interests, working style). It is
+self-reported and never confirmed. A claim that cites the reserved evidence id `about:me` is
+a **personal statement**, and is checked instead of steps 2–4 and 6 above:
+
+1. **Placement.** Any cover-letter paragraph, and at most one sentence of the resume summary.
+   Anywhere else it is `unsupported` (`personal_statement_placement`).
+2. **Citation.** It must cite the about-me, which must not be empty. Besides the about-me it
+   may cite facts, but not letter answers (`stmt:`).
+3. **Checkable details** (`documents/details.py`, deterministic). Numbers and number words,
+   durations, month names, skill terms, role words ("engineer", "lead", "CTO", …) and fact
+   titles, and names (any capitalized word not starting a sentence, and any acronym) must
+   appear in a cited **confirmed** fact. The about-me alone never supports them
+   (`unsupported_detail`). The target job title and company may be named. The rule is
+   strict on purpose: a harmless city name also fails it.
+4. **Meaning.** A sentence of the about-me reproduced verbatim is supported. Anything else
+   goes to the semantic check with the about-me (and any cited facts) as its sources.
+5. **Trust.** It needs no confirmed fact. If it cites facts, all of them must be confirmed.
+
+At drafting and regeneration, personal statements the model wrote that are not `supported`,
+including any still waiting for the semantic check because that call failed, are removed; a
+paragraph or summary left empty goes with them. If one failed on a detail the about-me itself
+states ("I have spent 10 years leading teams"), the drafter asks an optional career-fact
+question quoting that sentence, so the detail can become a fact the candidate confirms.
+Statements the candidate writes in the editor are never removed automatically.
+
+Approval treats a changed about-me like an edited fact: the verification records the
+about-me's hash for each personal statement, and a different hash at approval flags the
+documents. The deterministic path (no LLM) never uses the about-me.
+
 At approval time the checks are re-evaluated against the **current** facts. Each cited
 fact must still be active (not retired), its content hash must still equal the snapshot's,
 and its status must be `user_verified`. Editing or retiring a fact after generation therefore

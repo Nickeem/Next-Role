@@ -23,10 +23,14 @@ RESUME_SCHEMA: Literal["resume/v1"] = "resume/v1"
 COVER_LETTER_SCHEMA: Literal["cover-letter/v1"] = "cover-letter/v1"
 
 Id = Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,39}$")]
-# A candidate fact id, or "stmt:<clarification id>" for a letter-only operator statement.
+# A candidate fact id, "stmt:<clarification id>" for a letter-only operator statement, or
+# "about:me" for the candidate's about-me (a personal statement, ADR 0009).
 EvidenceId = Annotated[
     str,
-    Field(pattern=r"^(stmt:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
+    Field(
+        pattern=r"^(?:(stmt:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+        r"|about:me)$"
+    ),
 ]
 YearMonth = Annotated[str, Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
 Line = Annotated[str, Field(min_length=1, max_length=300)]
@@ -34,6 +38,7 @@ Line = Annotated[str, Field(min_length=1, max_length=300)]
 Url = Annotated[str, Field(max_length=2000, pattern=r"^https?://\S+$")]
 
 STATEMENT_PREFIX = "stmt:"
+ABOUT_ME_ID = "about:me"
 
 
 class _Strict(BaseModel):
@@ -49,6 +54,11 @@ class Claim(_Strict):
     # Cover letters only: a sentence that states nothing about the candidate (e.g. a
     # greeting). Verification restricts what such a sentence may contain.
     connective: bool = False
+
+    @property
+    def personal(self) -> bool:
+        """A personal statement: it cites the about-me, not only facts (ADR 0009)."""
+        return ABOUT_ME_ID in self.evidence_ids
 
 
 class Header(_Strict):

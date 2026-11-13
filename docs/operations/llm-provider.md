@@ -6,7 +6,7 @@ everything works that way. Configuring a provider adds two optional uses:
 | Use | Service | What is sent | Extra opt-in |
 | --- | --- | --- | --- |
 | Requirement extraction | `api` | Job description text only | `NEXT_ROLE_LLM_ALLOW_EXTERNAL=true` for `openai_compatible` |
-| Document drafting and semantic checks | `worker` | The job text and selected candidate facts (never contact details) | `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true` for **every** provider |
+| Document drafting and semantic checks | `worker` | The job text, selected candidate facts and the profile's about-me (never contact details or the headline) | `NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true` for **every** provider |
 
 The model never decides matching results or scores (ADR 0003). For extraction, it only splits
 the description into requirement statements. Statements that do not appear in the text are
@@ -79,7 +79,11 @@ NEXT_ROLE_LLM_ALLOW_CANDIDATE_DATA=true
 - Self-hosted servers that expose this API (vLLM, llama.cpp server, LM Studio, LiteLLM)
   work too. They still need `NEXT_ROLE_LLM_ALLOW_EXTERNAL=true`, because Next-Role cannot tell
   where the endpoint runs.
-- Check the provider's data retention terms before you enable candidate data.
+- Check the provider's data retention terms before you enable candidate data. With it
+  enabled, drafting and the semantic check also receive the profile's about-me (up to 2,000
+  characters, ADR 0009), so documents can include personal statements in the candidate's
+  own voice. Without it, the about-me never leaves the server and documents are assembled
+  from facts.
 - For OpenAI, use a current model. `gpt-5`, `gpt-5-mini` and `o3` shut down on 2026-12-11,
   and the dated `gpt-4.1` and `gpt-4o` snapshots on 2027-01-14 (see OpenAI's deprecations
   page). `gpt-6-luna` is a fast, inexpensive choice for every task.

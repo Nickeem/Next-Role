@@ -67,7 +67,7 @@ export interface ClaimCheck {
   path: string;
   status: ClaimStatus;
   issues: Issue[];
-  // Cited fact id (or "stmt:<id>") -> content hash it was checked against.
+  // Cited fact id (or "stmt:<id>", or "about:me") -> content hash it was checked against.
   evidence: Record<string, string>;
   verdict: string | null;
 }
