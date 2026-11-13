@@ -90,6 +90,22 @@ classification stay deterministic.
   - [x] Model discovery and the task-model API (PR #26).
   - [x] Settings UI and operations docs (PR #27).
 
+## Candidate profile (in progress)
+
+Goal: let the candidate maintain their profile in the web workspace, and later import it from
+a resume. Facts increasingly come from places other than the candidate's own typing, so
+confirmation is the checkpoint that decides what counts.
+
+- [ ] Candidate model revisions ([ADR 0009](decisions/0009-candidate-model-revisions.md)), as
+      a stack of pull requests:
+  - [ ] Docs alignment: ADR 0009, this section.
+  - [ ] Model and API: about-me, fact origin and inclusion, typed fact update, removed fields.
+  - [ ] Matching `rules-v2`: support means confirmation, home location, skill years.
+  - [ ] Documents: headline, display details, excluded facts, about-me in the snapshot.
+  - [ ] Documents: personal statements that cite the about-me.
+- [ ] Profile editor in the web workspace.
+- [ ] Resume import, creating unconfirmed facts for the candidate to review.
+
 ## Later phases (high level, not yet planned in detail)
 
 - **Phase 4: Job discovery and background processing.** Job provider adapters (respecting

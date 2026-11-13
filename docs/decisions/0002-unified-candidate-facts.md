@@ -2,6 +2,8 @@
 
 - Status: accepted (Phase 1)
 - Date: 2026-10-18
+- Amended by: [ADR 0009](0009-candidate-model-revisions.md) (support now means confirmation;
+  evidence no longer counts)
 
 ## Context
 
