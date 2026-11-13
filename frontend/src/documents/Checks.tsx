@@ -3,6 +3,8 @@ import type { DocumentKind, FactRef, Revision } from "./types";
 
 export type Act = (run: () => Promise<unknown>, done?: string) => Promise<boolean>;
 
+// Evidence id of the candidate's about-me: a claim citing it is a personal statement (ADR 0009).
+const ABOUT_ME = "about:me";
 const CONFIRMABLE = new Set(["not_verbatim", "uncertain_wording", "no_evidence", "not_entailed"]);
 
 /** Claims that are not yet supported, why, and how to resolve each one. */
@@ -57,13 +59,22 @@ export function Checks({
           {open.map((c) => {
             const isItem = c.claim_id.startsWith("item-");
             const unconfirmed = Object.keys(c.evidence).filter(
-              (id) => !id.startsWith("stmt:") && facts.get(id)?.verification_status === "self_reported",
+              (id) =>
+                !id.startsWith("stmt:") &&
+                id !== ABOUT_ME &&
+                facts.get(id)?.verification_status === "self_reported",
             );
+            const personal = ABOUT_ME in c.evidence;
             const canConfirmClaim = !isItem && c.issues.some((i) => CONFIRMABLE.has(i.code));
             return (
               <li key={c.claim_id} className={`check check--${c.status}`}>
                 <div className="check__head">
                   <q className="check__text">{texts.get(c.claim_id) ?? c.claim_id}</q>
+                  {personal && (
+                    <span className="tag" title="Rests on your about-me, not on facts">
+                      Personal statement
+                    </span>
+                  )}
                   <span className={`claim claim--${c.status}`}>{CLAIM_LABEL[c.status]}</span>
                 </div>
                 <ul className="check__issues">

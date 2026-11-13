@@ -25,7 +25,7 @@ from next_role.documents.models import (
     GenerationRun,
     RevisionAuthor,
 )
-from next_role.documents.schemas import Document, StyleSettings, parse_document
+from next_role.documents.schemas import Document, SectionType, StyleSettings, parse_document
 from next_role.documents.snapshot import FactSnapshot, InputSnapshot, build_snapshot, snapshot_hash
 from next_role.documents.verification import Verdict, VerificationResult, semantic_requests, verify
 from next_role.documents.workflow import (
@@ -172,10 +172,11 @@ def check(
     statements: dict[str, str],
     verdicts: dict[str, Verdict],
     *,
+    about_me: str | None = None,
     raise_on_llm_error: bool = False,
 ) -> Checked:
     vctx = service.verification_context(
-        facts, statements, document.target, ctx.llm is not None, verdicts
+        facts, statements, document.target, ctx.llm is not None, verdicts, about_me
     )
     result = verify(document, vctx)
     requests = semantic_requests(result, document, vctx)
@@ -196,9 +197,40 @@ def check(
         return Checked(result, type(exc).__name__)
     ctx.progress()
     vctx = service.verification_context(
-        facts, statements, document.target, True, {**verdicts, **new}
+        facts, statements, document.target, True, {**verdicts, **new}, about_me
     )
     return Checked(verify(document, vctx))
+
+
+def check_drafted(
+    ctx: GenerationContext,
+    document: Document,
+    kind: DocumentKind,
+    snapshot: InputSnapshot,
+    statements: dict[str, str],
+    verdicts: dict[str, Verdict],
+    *,
+    prune: bool = True,
+) -> tuple[Document, Checked, list[drafting.Question]]:
+    """Check a freshly drafted document, then remove the personal statements that failed.
+
+    A statement still waiting for the semantic check (because that call failed) is removed
+    too: a draft never keeps an unchecked personal statement. The pruned document is checked
+    again with the verdicts already given, so the model is not asked twice.
+    """
+    about_me = snapshot.candidate.about_me
+    facts = _facts(snapshot)
+    checked = check(ctx, document, facts, statements, verdicts, about_me=about_me)
+    if not prune:
+        return document, checked, []
+    pruned, questions = drafting.prune_personal(document, checked.result, about_me, kind)
+    if pruned is document:
+        return document, checked, []
+    known = {
+        c.semantic_key: c.verdict for c in checked.result.claims if c.semantic_key and c.verdict
+    }
+    again = check(ctx, pruned, facts, statements, {**verdicts, **known}, about_me=about_me)
+    return pruned, again, questions
 
 
 def _facts(snapshot: InputSnapshot) -> dict[uuid.UUID, FactSnapshot]:
@@ -238,15 +270,14 @@ def _initial(ctx: GenerationContext, run_id: uuid.UUID, token: uuid.UUID) -> Non
 
     draft = drafting.draft(snapshot, {}, _today(ctx), ctx.llm, ctx.no_llm_reason)
     ctx.progress()
-    facts = _facts(snapshot)
-    checked = {
-        DocumentKind.RESUME: check(ctx, draft.resume, facts, {}, {}),
-        DocumentKind.COVER_LETTER: check(ctx, draft.letter, facts, {}, {}),
-    }
-    documents: dict[DocumentKind, Document] = {
-        DocumentKind.RESUME: draft.resume,
-        DocumentKind.COVER_LETTER: draft.letter,
-    }
+    documents: dict[DocumentKind, Document] = {}
+    checked: dict[DocumentKind, Checked] = {}
+    for kind, drafted in (
+        (DocumentKind.RESUME, draft.resume),
+        (DocumentKind.COVER_LETTER, draft.letter),
+    ):
+        documents[kind], checked[kind], extra = check_drafted(ctx, drafted, kind, snapshot, {}, {})
+        draft.questions += extra
 
     with ctx.factory.begin() as session:
         run = runs.hold(session, run_id, token)
@@ -329,7 +360,13 @@ def _regenerate(ctx: GenerationContext, run_id: uuid.UUID, token: uuid.UUID) -> 
     ctx.progress()
     fresh: Document = draft.resume if kind is DocumentKind.RESUME else draft.letter
     document = service.replace_section(base, fresh, section)
-    checked = check(ctx, document, _facts(snapshot), statements, verdicts)
+    # Only drafted text is pruned: regenerating another resume section keeps the summary,
+    # which may hold the candidate's own edits.
+    drafted_summary = kind is DocumentKind.COVER_LETTER or section == SectionType.SUMMARY.value
+    document, checked, extra = check_drafted(
+        ctx, document, kind, snapshot, statements, verdicts, prune=drafted_summary
+    )
+    draft.questions += extra
 
     with ctx.factory.begin() as session:
         run = runs.hold(session, run_id, token)
@@ -366,6 +403,7 @@ def _verify_current(ctx: GenerationContext, run_id: uuid.UUID, token: uuid.UUID)
         runs.check_authorization(session, run)
         bundle = _open_bundle_for(session, run)
         facts = service.current_facts(session, bundle.candidate_id)
+        about_me = service.current_about_me(session, bundle.candidate_id)
         statements = service.statements(session, bundle.id)
         verdicts = service.known_verdicts(session, bundle.id)
         targets = {
@@ -375,7 +413,12 @@ def _verify_current(ctx: GenerationContext, run_id: uuid.UUID, token: uuid.UUID)
         bundle_id = bundle.id
 
     results = {
-        kind: (revision_id, check(ctx, doc, facts, statements, verdicts, raise_on_llm_error=True))
+        kind: (
+            revision_id,
+            check(
+                ctx, doc, facts, statements, verdicts, about_me=about_me, raise_on_llm_error=True
+            ),
+        )
         for kind, (revision_id, doc) in targets.items()
     }
 

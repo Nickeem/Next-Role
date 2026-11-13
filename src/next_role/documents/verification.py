@@ -13,6 +13,12 @@ Order of checks for each claim:
    ``unsupported``. Without an LLM it is ``unsupported``.
 5. Trust: a claim resting only on facts the candidate has not confirmed is ``needs_review``.
 
+Personal statements (claims citing ``about:me``, ADR 0009) are checked differently: they may
+sit in any cover-letter paragraph or, at most one, in the resume summary; the about-me must
+exist and support them (verbatim or by the LLM check, with the about-me as a source); and
+every checkable detail (``details.py``) must appear in a cited confirmed fact. They need no
+confirmed fact unless they cite facts, which must then all be confirmed.
+
 Only ``supported`` claims can be approved. The LLM check can only downgrade a claim that
 the deterministic checks allow; it never overrides them.
 """
@@ -26,7 +32,9 @@ from enum import StrEnum
 from typing import Any
 
 from next_role.candidates.models import FactType
+from next_role.documents.details import unsupported_details
 from next_role.documents.schemas import (
+    ABOUT_ME_ID,
     STATEMENT_PREFIX,
     CertificationItem,
     CertificationsSection,
@@ -92,6 +100,8 @@ class ClaimResult:
     # Set when the claim needs (or had) an LLM verdict; the key caches that verdict.
     semantic_key: str | None = None
     verdict: Verdict | None = None
+    # Personal statements: checkable details no cited confirmed fact states. Not stored.
+    details: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -139,6 +149,9 @@ class Context:
     verdicts: Mapping[str, Verdict] = field(default_factory=dict)
     # The job title and company, which connective sentences may name.
     target_phrases: tuple[str, ...] = ()
+    # The about-me personal statements cite, and its hash for approval (ADR 0009).
+    about_me: str | None = None
+    about_me_hash: str | None = None
 
 
 def semantic_key(text: str, sources: list[str], connective: bool) -> str:
@@ -150,7 +163,15 @@ def verify(document: Document, ctx: Context) -> VerificationResult:
     issues: list[Issue] = []
     is_letter = isinstance(document, CoverLetterDocument)
     claims = _item_results(document, ctx)
-    claims += [_check_claim(ref, claim, ctx, is_letter) for ref, claim in iter_claims(document)]
+    personal_in_summary = 0
+    for ref, claim in iter_claims(document):
+        if claim.personal:
+            in_summary = not is_letter and "/claims/" in ref.path
+            personal_in_summary += in_summary
+            allowed = is_letter or (in_summary and personal_in_summary == 1)
+            claims.append(_check_personal(ref, claim, ctx, allowed))
+        else:
+            claims.append(_check_claim(ref, claim, ctx, is_letter))
     if isinstance(document, ResumeDocument) and not any(
         isinstance(s, ExperienceSection | ProjectsSection | EducationSection)
         for s in document.sections
@@ -189,12 +210,20 @@ def semantic_requests(
 
 
 def stale_evidence(
-    claims: list[dict[str, Any]], current: Mapping[uuid.UUID, FactSnapshot]
+    claims: list[dict[str, Any]],
+    current: Mapping[uuid.UUID, FactSnapshot],
+    about_me_hash: str | None = None,
 ) -> list[str]:
-    """Claim ids whose cited facts were retired, edited, or are not confirmed now."""
+    """Claim ids whose cited facts were retired, edited, excluded or are not confirmed now,
+    or that cite an about-me that changed since."""
     stale = []
     for claim in claims:
         for evidence_id, digest in claim.get("evidence", {}).items():
+            if evidence_id == ABOUT_ME_ID:
+                if digest != about_me_hash:
+                    stale.append(claim["claim_id"])
+                    break
+                continue
             if evidence_id.startswith(STATEMENT_PREFIX):
                 continue
             fact = current.get(uuid.UUID(evidence_id))
@@ -210,7 +239,10 @@ def stale_evidence(
 def _sources(claim: Claim, ctx: Context) -> list[str]:
     sources: list[str] = []
     for evidence_id in claim.evidence_ids:
-        if evidence_id.startswith(STATEMENT_PREFIX):
+        if evidence_id == ABOUT_ME_ID:
+            if ctx.about_me:
+                sources.append(ctx.about_me)
+        elif evidence_id.startswith(STATEMENT_PREFIX):
             if evidence_id in ctx.statements:
                 sources.append(ctx.statements[evidence_id])
         elif (fact := _fact(evidence_id, ctx)) is not None:
@@ -308,6 +340,76 @@ def _check_claim(ref: ClaimRef, claim: Claim, ctx: Context, is_letter: bool) -> 
             return result
 
     if facts and not statements and not any(f.confirmed for f in facts):
+        result.status = ClaimStatus.NEEDS_REVIEW
+        result.issues.append(
+            Issue(
+                "unconfirmed_fact",
+                "Rests on facts you have not confirmed yet; confirm them to approve",
+            )
+        )
+    return result
+
+
+def _check_personal(ref: ClaimRef, claim: Claim, ctx: Context, allowed: bool) -> ClaimResult:
+    result = ClaimResult(claim.claim_id, ref.path, claim.text, ClaimStatus.SUPPORTED)
+    if claim.connective:
+        result.issues.append(Issue("connective_with_evidence", "Connective text cites evidence"))
+    if not allowed:
+        result.issues.append(
+            Issue(
+                "personal_statement_placement",
+                "A sentence resting on your about-me can only be in the cover letter, or be "
+                "the one such sentence in the resume summary",
+            )
+        )
+    if ctx.about_me:
+        result.evidence[ABOUT_ME_ID] = ctx.about_me_hash or ""
+    else:
+        result.issues.append(Issue("unknown_evidence", "Cites your about-me, which is empty"))
+
+    facts: list[FactSnapshot] = []
+    for evidence_id in claim.evidence_ids:
+        if evidence_id == ABOUT_ME_ID:
+            continue
+        if evidence_id.startswith(STATEMENT_PREFIX):
+            result.issues.append(
+                Issue("unknown_evidence", "A personal statement cites your about-me and facts only")
+            )
+            continue
+        fact = _fact(evidence_id, ctx)
+        if fact is None:
+            result.issues.append(
+                Issue(
+                    "unknown_evidence",
+                    "Cites a fact that does not exist, was retired, or is kept off documents",
+                )
+            )
+            continue
+        facts.append(fact)
+        result.evidence[evidence_id] = fact.content_hash
+
+    # Anything checkable must come from a confirmed fact, never from the about-me alone.
+    support = " \n ".join(fact_text(f) for f in facts if f.confirmed)
+    titles = [f.title for f in ctx.facts.values()]
+    missing = unsupported_details(claim.text, support, ctx.target_phrases, titles)
+    if missing:
+        result.details = missing
+        result.issues.append(
+            Issue(
+                "unsupported_detail",
+                "States details no cited confirmed fact contains: " + ", ".join(missing),
+            )
+        )
+    if result.issues:
+        result.status = ClaimStatus.UNSUPPORTED
+        return result
+
+    sources = _sources(claim, ctx)
+    if not is_verbatim(claim.text, sources):
+        _apply_semantic(result, semantic_key(claim.text, sources, False), ctx)
+        if result.status is not ClaimStatus.SUPPORTED:
+            return result
+    if any(not f.confirmed for f in facts):
         result.status = ClaimStatus.NEEDS_REVIEW
         result.issues.append(
             Issue(

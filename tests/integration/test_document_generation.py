@@ -538,3 +538,91 @@ def test_excluding_a_cited_fact_flags_the_documents_at_approval(
     # Claims citing the fact (and facts under it, which are excluded with it) are flagged.
     citing = {c["claim_id"] for c in claims if cited in c["evidence"]}
     assert citing and citing <= set(stale)
+
+
+# --- Personal statements (ADR 0009) ------------------------------------------------------
+
+ABOUT_ME = "I like small teams that write things down."
+
+
+class _PersonalLLM(_FakeLLM):
+    """Adds one supported and one unsupported personal statement to the cover letter."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.prompts: list[str] = []
+
+    def text(self, system: str, user: str, schema: dict[str, Any]) -> str:
+        out = json.loads(super().text(system, user, schema))
+        if "<claims>" in user:
+            return json.dumps(out)
+        self.prompts.append(user)
+        if "cover letter" in system:
+            out["paragraphs"].append(
+                {
+                    "sentences": [
+                        {"text": ABOUT_ME, "evidence_ids": ["about:me"], "connective": False},
+                        {
+                            "text": "I have led teams at Initech.",
+                            "evidence_ids": ["about:me"],
+                            "connective": False,
+                        },
+                    ]
+                }
+            )
+        return json.dumps(out)
+
+
+def test_personal_statements_are_drafted_checked_and_flagged_when_the_about_me_changes(
+    client: TestClient, session_factory: sessionmaker[Session], review: dict[str, Any]
+) -> None:
+    from next_role.documents import service
+    from next_role.documents.snapshot import about_me_hash
+    from next_role.documents.verification import stale_evidence
+
+    cid = review["candidate_id"]
+    client.patch(f"/api/v1/candidates/{cid}", json={"about_me": ABOUT_ME})
+    llm = _PersonalLLM()
+    _approve(session_factory, review["id"])
+    assert _drain(_ctx(session_factory, llm)) == 1
+    assert llm.prompts and all(ABOUT_ME in p for p in llm.prompts)
+
+    [summary] = client.get(f"/api/v1/reviews/{review['id']}/documents").json()["bundles"]
+    detail = client.get(f"/api/v1/bundles/{summary['id']}").json()
+    texts = [
+        c["text"] for p in detail["cover_letter"]["content"]["paragraphs"] for c in p["claims"]
+    ]
+    assert ABOUT_ME in texts and "I have led teams at Initech." not in texts
+    claims = detail["cover_letter"]["verification"]["claims"]
+    personal = next(c for c in claims if "about:me" in c["evidence"])
+    assert personal["status"] == "supported"
+
+    client.patch(f"/api/v1/candidates/{cid}", json={"about_me": "Something else entirely."})
+    with session_factory() as session:
+        current = service.current_about_me(session, uuid.UUID(cid))
+        facts = service.current_facts(session, uuid.UUID(cid))
+    assert stale_evidence(claims, facts, about_me_hash(current)) == [personal["claim_id"]]
+
+
+def test_the_about_me_is_not_sent_without_the_candidate_data_opt_in(
+    client: TestClient,
+    settings: Any,
+    session_factory: sessionmaker[Session],
+    review: dict[str, Any],
+) -> None:
+    client.patch(f"/api/v1/candidates/{review['candidate_id']}", json={"about_me": ABOUT_ME})
+    llm = _PersonalLLM()
+    provider, reason = generation.drafting_provider(settings, llm)
+    assert provider is None and reason
+    _approve(session_factory, review["id"])
+    assert _drain(_ctx(session_factory, provider)) == 1
+    assert llm.prompts == [] and llm.judged == 0
+    [summary] = client.get(f"/api/v1/reviews/{review['id']}/documents").json()["bundles"]
+    detail = client.get(f"/api/v1/bundles/{summary['id']}").json()
+    evidence = [
+        e
+        for doc in ("resume", "cover_letter")
+        for c in detail[doc]["verification"]["claims"]
+        for e in c["evidence"]
+    ]
+    assert "about:me" not in evidence
