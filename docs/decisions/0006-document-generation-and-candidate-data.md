@@ -2,6 +2,8 @@
 
 - Status: accepted (Phase 3)
 - Date: 2026-10-22
+- Amended by: [ADR 0009](0009-candidate-model-revisions.md) (the about-me is sent with
+  drafting and the semantic check; personal statements may cite it)
 
 ## Context
 
