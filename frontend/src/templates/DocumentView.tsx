@@ -58,6 +58,9 @@ function Section({ section }: { section: DisplaySection }) {
             {entry.dates && <span className="nr-dates">{entry.dates}</span>}
           </div>
           {entry.location && <div className="nr-location">{entry.location}</div>}
+          {entry.details && entry.details.length > 0 && (
+            <div className="nr-details">{entry.details.join("  ·  ")}</div>
+          )}
           {entry.bullets.length > 0 && (
             <ul className="nr-bullets">
               {entry.bullets.map((b, j) => (
@@ -94,6 +97,7 @@ export function DocumentView({
     <article className={classes.join(" ")} style={cssVars(tokens)}>
       <header className="nr-head">
         <h1 className="nr-name">{doc.header.name}</h1>
+        {doc.header.headline && <p className="nr-headline">{doc.header.headline}</p>}
         {doc.header.contact.length > 0 && (
           <p className="nr-contact">
             {doc.header.contact.map((c, i) => (

@@ -91,3 +91,38 @@ test("renders a cover letter with its closing and signature", () => {
   expect(screen.getByText("Sincerely,")).toBeInTheDocument();
   expect(screen.getAllByText("Alex Example")).toHaveLength(2);
 });
+
+test.each(["clean", "modern-deedy", "modern"] as const)(
+  "the %s template renders the headline and entry details",
+  (template_id) => {
+    const withDetails: DisplayDocument = {
+      ...resume,
+      header: { ...resume.header, headline: "Backend engineer" },
+      sections: [
+        {
+          id: "certifications",
+          type: "certifications",
+          title: "Certifications",
+          inline: [],
+          entries: [
+            {
+              heading: "AWS Certified Solutions Architect",
+              subheading: null,
+              dates: "Jan 2024",
+              location: null,
+              details: ["Credential ID ABC-123", "https://example.invalid/verify"],
+              bullets: [],
+            },
+          ],
+        },
+      ],
+    };
+    const { container } = render(
+      <DocumentView document={withDetails} tokens={{ ...tokens, template_id }} />,
+    );
+    expect(container.querySelector(".nr-headline")).toHaveTextContent("Backend engineer");
+    expect(container.querySelector(".nr-details")).toHaveTextContent(
+      "Credential ID ABC-123 · https://example.invalid/verify",
+    );
+  },
+);

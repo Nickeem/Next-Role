@@ -30,6 +30,8 @@ EvidenceId = Annotated[
 ]
 YearMonth = Annotated[str, Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
 Line = Annotated[str, Field(min_length=1, max_length=300)]
+# Shown as a detail of an entry, copied from the fact by code.
+Url = Annotated[str, Field(max_length=2000, pattern=r"^https?://\S+$")]
 
 STATEMENT_PREFIX = "stmt:"
 
@@ -51,6 +53,8 @@ class Claim(_Strict):
 
 class Header(_Strict):
     name: Line
+    # From the profile, rendered by code like the name; never written by or sent to an LLM.
+    headline: Line | None = None
     location: Line | None = None
     contact: CandidateContact = CandidateContact()
 
@@ -84,6 +88,8 @@ class ProjectItem(_Item):
     start_date: YearMonth | None = None
     end_date: YearMonth | None = None
     is_current: bool = False
+    # Display detail copied from the fact; not a claim.
+    url: Url | None = None
     bullets: Annotated[list[Claim], Field(max_length=6)] = []
 
 
@@ -100,6 +106,9 @@ class CertificationItem(_Item):
     issuer: Line | None = None
     issued: YearMonth | None = None
     expires: YearMonth | None = None
+    # Display details copied from the fact; not claims.
+    credential_id: Line | None = None
+    credential_url: Url | None = None
 
 
 class SectionType(StrEnum):

@@ -1,7 +1,8 @@
 """The immutable input a generation run drafts from, and per-fact content hashes.
 
 A snapshot pins the job and the assessment the approval was based on, and copies the
-candidate's active facts as they were when the run started. Facts can be edited later; the
+candidate's active facts as they were when the run started, except facts kept off documents
+(``include_in_documents`` false) and the facts under them (ADR 0009). Facts can be edited later; the
 content hash recorded here (and on each verification) lets approval detect that.
 """
 
@@ -60,6 +61,9 @@ class RequirementSnapshot(_Frozen):
     # From the assessment the approval was based on.
     status: MatchStatus | None
     evidence_fact_ids: list[uuid.UUID]
+    # The assessment's evidence is only facts kept off documents: drafting neither covers the
+    # requirement nor asks about it.
+    excluded_only: bool = False
 
 
 class JobSnapshot(_Frozen):
@@ -77,6 +81,12 @@ class CandidateSnapshot(_Frozen):
     location: str | None
     # Display only. Never sent to an LLM (ADR 0006).
     contact: CandidateContact
+    # Display only, rendered in document headers. Never sent to an LLM (ADR 0009).
+    headline: str | None = None
+    # Self-description that personal statements may cite. Sent only with LLM drafting and
+    # the semantic check, under the candidate-data opt-in (ADR 0009).
+    about_me: str | None = None
+    about_me_hash: str | None = None
 
 
 class InputSnapshot(_Frozen):
@@ -110,6 +120,11 @@ def fact_snapshot(fact: CandidateFact) -> FactSnapshot:
     )
 
 
+def about_me_hash(about_me: str | None) -> str | None:
+    """What approval compares to tell that the about-me changed since a claim cited it."""
+    return sha256_json({"about_me": about_me}) if about_me else None
+
+
 def active_facts(session: Session, candidate_id: uuid.UUID) -> list[CandidateFact]:
     return list(
         session.scalars(
@@ -119,6 +134,21 @@ def active_facts(session: Session, candidate_id: uuid.UUID) -> list[CandidateFac
             .order_by(CandidateFact.created_at, CandidateFact.id)
         )
     )
+
+
+def document_facts(facts: list[CandidateFact]) -> list[CandidateFact]:
+    """Facts documents may use: not excluded, and not under an excluded fact."""
+    by_id = {f.id: f for f in facts}
+
+    def included(fact: CandidateFact, seen: frozenset[uuid.UUID] = frozenset()) -> bool:
+        if not fact.include_in_documents:
+            return False
+        parent = by_id.get(fact.parent_fact_id) if fact.parent_fact_id else None
+        if parent is None or parent.id in seen:
+            return True
+        return included(parent, seen | {fact.id})
+
+    return [f for f in facts if included(f)]
 
 
 def build_snapshot(session: Session, assessment_id: uuid.UUID) -> InputSnapshot:
@@ -138,11 +168,15 @@ def build_snapshot(session: Session, assessment_id: uuid.UUID) -> InputSnapshot:
     if job is None or candidate is None:  # pragma: no cover - foreign keys guarantee both
         raise NotFoundError("Job or candidate not found")
 
+    active = active_facts(session, candidate.id)
+    usable = document_facts(active)
+    excluded = {f.id for f in active} - {f.id for f in usable}
     results = {r.requirement_id: r for r in assessment.requirement_results}
     requirements = []
     for req in job.requirements:
         result = results.get(req.id)
         cited = [] if result is None else [e.get("fact_id") for e in result.evidence]
+        evidence = [uuid.UUID(f) for f in cited if f]
         requirements.append(
             RequirementSnapshot(
                 id=req.id,
@@ -152,7 +186,8 @@ def build_snapshot(session: Session, assessment_id: uuid.UUID) -> InputSnapshot:
                 importance=req.importance.value,
                 terms=list(req.terms),
                 status=result.status if result else None,
-                evidence_fact_ids=[uuid.UUID(f) for f in cited if f],
+                evidence_fact_ids=evidence,
+                excluded_only=bool(evidence) and set(evidence) <= excluded,
             )
         )
     return InputSnapshot(
@@ -171,8 +206,11 @@ def build_snapshot(session: Session, assessment_id: uuid.UUID) -> InputSnapshot:
             full_name=candidate.full_name,
             location=candidate.location,
             contact=CandidateContact.model_validate(candidate.contact or {}),
+            headline=candidate.headline,
+            about_me=candidate.about_me,
+            about_me_hash=about_me_hash(candidate.about_me),
         ),
-        facts=[fact_snapshot(f) for f in active_facts(session, candidate.id)],
+        facts=[fact_snapshot(f) for f in usable],
     )
 
 

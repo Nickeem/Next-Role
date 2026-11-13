@@ -192,7 +192,7 @@ def item_statements(
 
 def header_of(snapshot: InputSnapshot) -> Header:
     c = snapshot.candidate
-    return Header(name=c.full_name, location=c.location, contact=c.contact)
+    return Header(name=c.full_name, headline=c.headline, location=c.location, contact=c.contact)
 
 
 def _claims(statements: list[Statement], prefix: str, limit: int) -> list[Claim]:
@@ -244,6 +244,7 @@ def _project_items(
                 start_date=year_month(fact.start_date),
                 end_date=year_month(fact.end_date),
                 is_current=fact.is_current,
+                url=fact.attributes.get("url"),
                 bullets=_claims(item_statements(snapshot, fact, terms), item_id, 3),
             )
         )
@@ -281,6 +282,8 @@ def _certification_items(snapshot: InputSnapshot, today: date) -> list[Certifica
             issuer=f.organization,
             issued=year_month(f.start_date),
             expires=year_month(f.end_date),
+            credential_id=f.attributes.get("credential_id"),
+            credential_url=f.attributes.get("credential_url"),
         )
         for n, f in enumerate(facts, start=1)
     ]
@@ -389,6 +392,9 @@ def questions_for(snapshot: InputSnapshot, statements: Mapping[str, str]) -> lis
     seen_requirements: set[str] = set()
     for req in snapshot.job.requirements:
         if req.status not in _GAP_STATUSES or req.category == "work_authorization":
+            continue
+        # The candidate chose to keep the facts that address it off documents.
+        if req.excluded_only:
             continue
         # A job stored with a repeated requirement asks about it once.
         if requirement_key(req.text) in seen_requirements:
@@ -570,9 +576,12 @@ def _job_payload(snapshot: InputSnapshot) -> dict[str, object]:
     return {
         "title": job.title,
         "company": job.company,
+        # Requirements only facts kept off documents address are left out, so the model
+        # neither covers them nor asks about them.
         "requirements": [
             {"text": r.text, "importance": r.importance, "assessment": r.status}
             for r in job.requirements
+            if not r.excluded_only
         ],
         "description": job.description[:MAX_JOB_CHARS],
     }

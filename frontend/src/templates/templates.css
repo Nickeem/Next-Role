@@ -39,6 +39,16 @@
   color: var(--nr-accent);
 }
 
+.nr-headline {
+  margin-top: 2pt;
+}
+
+.nr-details {
+  color: var(--nr-muted);
+  font-size: var(--nr-small);
+  overflow-wrap: anywhere;
+}
+
 .nr-contact {
   margin-top: 2pt;
   font-size: var(--nr-small);

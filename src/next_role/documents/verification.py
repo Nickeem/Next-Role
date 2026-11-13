@@ -245,7 +245,10 @@ def _check_claim(ref: ClaimRef, claim: Claim, ctx: Context, is_letter: bool) -> 
         fact = _fact(evidence_id, ctx)
         if fact is None:
             result.issues.append(
-                Issue("unknown_evidence", "Cites a fact that does not exist or was retired")
+                Issue(
+                    "unknown_evidence",
+                    "Cites a fact that does not exist, was retired, or is kept off documents",
+                )
             )
             continue
         facts.append(fact)
@@ -423,6 +426,8 @@ def _project_fields(item: ProjectItem, fact: FactSnapshot) -> dict[str, tuple[An
         "start date": (item.start_date, year_month(fact.start_date)),
         "end date": (item.end_date, year_month(fact.end_date)),
         "current": (item.is_current, fact.is_current),
+        # Display details: checked when shown, so documents drafted before they existed pass.
+        "link": (item.url, fact.attributes.get("url") if item.url else None),
     }
 
 
@@ -445,6 +450,14 @@ def _certification_fields(
         "issuer": (item.issuer, fact.organization if item.issuer else None),
         "issued": (item.issued, year_month(fact.start_date) if item.issued else None),
         "expires": (item.expires, year_month(fact.end_date) if item.expires else None),
+        "credential ID": (
+            item.credential_id,
+            fact.attributes.get("credential_id") if item.credential_id else None,
+        ),
+        "credential link": (
+            item.credential_url,
+            fact.attributes.get("credential_url") if item.credential_url else None,
+        ),
     }
 
 
