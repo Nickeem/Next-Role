@@ -6,8 +6,6 @@ cite candidate facts by id; organization, title, dates, institution and credenti
 from the cited fact by code and checked again by verification.
 """
 
-import hashlib
-import json
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -17,6 +15,9 @@ from typing import Annotated, Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from next_role.candidates.schemas import CandidateContact
+from next_role.hashing import canonical_json, sha256_json
+
+__all__ = ["canonical_json", "sha256_json"]
 
 RESUME_SCHEMA: Literal["resume/v1"] = "resume/v1"
 COVER_LETTER_SCHEMA: Literal["cover-letter/v1"] = "cover-letter/v1"
@@ -254,14 +255,6 @@ def iter_claims(document: Document) -> Iterator[tuple[ClaimRef, Claim]]:
                         yield ClaimRef(f"{base}/items/{i}/bullets/{c}", section.id, item), claim
             case _:
                 pass
-
-
-def canonical_json(data: Any) -> str:
-    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
-
-
-def sha256_json(data: Any) -> str:
-    return hashlib.sha256(canonical_json(data).encode()).hexdigest()
 
 
 def content_hash(document: Document) -> str:

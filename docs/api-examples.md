@@ -27,6 +27,11 @@ counts for matching). Skill `proficiency`, experience `employment_type` and the
 `user_statement` evidence kind were removed ([ADR 0009](decisions/0009-candidate-model-revisions.md))
 and are rejected.
 
+`support` is `confirmed` or `unconfirmed`. Only a confirmed fact counts as match evidence;
+linked evidence sources document a fact but no longer change its support (matching
+`rules-v2`). Assessments made earlier keep their recorded `verified`, `evidenced` or
+`unsupported`.
+
 ```bash
 curl -sS -X POST $API/api/v1/candidates -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' --data-binary @examples/candidate.json
@@ -43,10 +48,10 @@ curl -sS -X POST $API/api/v1/candidates -H "X-API-Key: $KEY" \
   "facts": [
     {"fact_type": "experience", "title": "Backend Engineer",
      "skills": ["python", "django", "postgresql", "docker", "rest apis"],
-     "verification_status": "user_verified", "support": "verified", "origin": "import",
+     "verification_status": "user_verified", "support": "confirmed", "origin": "import",
      "include_in_documents": true, "evidence_source_ids": ["…"], …},
     {"fact_type": "skill", "title": "Kubernetes", "verification_status": "self_reported",
-     "support": "unsupported", "origin": "import", …},
+     "support": "unconfirmed", "origin": "import", …},
     …
   ]
 }
@@ -149,7 +154,7 @@ curl -sS -X POST $API/api/v1/jobs/<job id>/assessments -H "X-API-Key: $KEY" \
   "created": true,
   "assessment": {
     "id": "2067c4e0-…",
-    "method_version": "rules-v1",
+    "method_version": "rules-v2",
     "as_of": "2026-10-18",
     "score": 69,
     "score_excluding_unknowns": 97,
@@ -172,9 +177,9 @@ curl -sS -X POST $API/api/v1/jobs/<job id>/assessments -H "X-API-Key: $KEY" \
        "evidence": [
          {"fact_id": "77771ed0-…", "fact_type": "experience",
           "title": "Backend Engineer (Northwind Freight (fictional))",
-          "support": "verified", "reason": "dated experience"}, …]},
+          "support": "confirmed", "reason": "dated experience"}, …]},
       {"text": "Experience running workloads on Kubernetes", "status": "unverified",
-       "explanation": "Relevant claims exist but none are verified or evidenced: …", …},
+       "explanation": "Relevant claims exist but none are confirmed: …", …},
       …
     ],
     "preference_checks": [

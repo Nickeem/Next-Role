@@ -31,15 +31,37 @@ from next_role.candidates.schemas import (
     check_dates,
 )
 from next_role.errors import InvalidInputError, NotFoundError
+from next_role.hashing import sha256_json
 from next_role.skills import normalize_skills
 
 
 def fact_support(fact: CandidateFact) -> FactSupport:
+    """Only confirmation counts; linked evidence documents a fact but proves nothing (ADR 0009)."""
     if fact.verification_status is VerificationStatus.USER_VERIFIED:
-        return FactSupport.VERIFIED
-    if fact.evidence_sources:
-        return FactSupport.EVIDENCED
-    return FactSupport.UNSUPPORTED
+        return FactSupport.CONFIRMED
+    return FactSupport.UNCONFIRMED
+
+
+def fact_content_hash(fact: CandidateFact) -> str:
+    """Hash of everything a document could state from a fact.
+
+    Not its verification status, origin or inclusion in documents: changing those is not an
+    edit. Documents compare it at approval; matching fingerprints it.
+    """
+    return sha256_json(
+        {
+            "fact_type": fact.fact_type.value,
+            "title": fact.title,
+            "organization": fact.organization,
+            "description": fact.description,
+            "start_date": fact.start_date,
+            "end_date": fact.end_date,
+            "is_current": fact.is_current,
+            "skills": list(fact.skills),
+            "attributes": fact.attributes,
+            "parent_fact_id": fact.parent_fact_id,
+        }
+    )
 
 
 def fact_out(fact: CandidateFact) -> FactOut:

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from next_role.candidates.models import Candidate, CandidateFact
 from next_role.candidates.schemas import CandidatePreferences
-from next_role.candidates.service import fact_support, get_candidate
+from next_role.candidates.service import fact_content_hash, fact_support, get_candidate
 from next_role.errors import NotFoundError
 from next_role.jobs.models import JobOpportunity
 from next_role.jobs.service import get_job
@@ -57,6 +57,7 @@ def candidate_view(candidate: Candidate) -> engine.CandidateView:
     return engine.CandidateView(
         preferences=CandidatePreferences.model_validate(candidate.preferences),
         facts=tuple(_fact_view(f) for f in candidate.facts if f.retired_at is None),
+        home_location=candidate.location,
     )
 
 
@@ -88,13 +89,11 @@ def input_fingerprint(candidate: Candidate, job: JobOpportunity, as_of: date) ->
         "method_version": engine.METHOD_VERSION,
         "as_of": as_of.isoformat(),
         "preferences": candidate.preferences,
+        "home_location": candidate.location,
+        # Content and confirmation only: evidence links, origin and inclusion in documents do
+        # not change the result (ADR 0009).
         "facts": sorted(
-            (
-                str(f.id),
-                f.updated_at.isoformat(),
-                f.verification_status.value,
-                sorted(str(e.id) for e in f.evidence_sources),
-            )
+            (str(f.id), fact_content_hash(f), f.verification_status.value)
             for f in candidate.facts
             if f.retired_at is None
         ),

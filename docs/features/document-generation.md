@@ -210,8 +210,8 @@ This applies equally to drafted and operator-edited text, with or without an LLM
 
 **Clarification answers.** An answer that is a career fact (for example "Did Project X have
 a measurable result?") is proposed as a new unconfirmed `candidate_fact` with origin
-`document_question` (and, until matching `rules-v2`, an evidence source of kind `other`). It
-is used only after the operator confirms it. Letter-only answers (for
+`document_question` and no evidence source. It is used, by documents and by matching, only
+after the operator confirms it. Letter-only answers (for
 example motivation for the company) stay on the clarification request and are cited as
 `operator_statement` evidence for that bundle only.
 

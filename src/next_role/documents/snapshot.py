@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from next_role.candidates.models import Candidate, CandidateFact, FactType, VerificationStatus
 from next_role.candidates.schemas import CandidateContact
+from next_role.candidates.service import fact_content_hash
 from next_role.documents.schemas import sha256_json
 from next_role.errors import NotFoundError
 from next_role.jobs.models import JobOpportunity
@@ -88,24 +89,6 @@ class InputSnapshot(_Frozen):
 
     def fact(self, fact_id: uuid.UUID) -> FactSnapshot | None:
         return next((f for f in self.facts if f.id == fact_id), None)
-
-
-def fact_content_hash(fact: CandidateFact) -> str:
-    """Hash of everything a document could state from a fact (not its verification status)."""
-    return sha256_json(
-        {
-            "fact_type": fact.fact_type.value,
-            "title": fact.title,
-            "organization": fact.organization,
-            "description": fact.description,
-            "start_date": fact.start_date,
-            "end_date": fact.end_date,
-            "is_current": fact.is_current,
-            "skills": list(fact.skills),
-            "attributes": fact.attributes,
-            "parent_fact_id": fact.parent_fact_id,
-        }
-    )
 
 
 def fact_snapshot(fact: CandidateFact) -> FactSnapshot:

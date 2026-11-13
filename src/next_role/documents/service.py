@@ -18,8 +18,6 @@ from sqlalchemy.orm import Session
 
 from next_role.candidates.models import (
     CandidateFact,
-    EvidenceKind,
-    EvidenceSource,
     FactOrigin,
     FactType,
     VerificationStatus,
@@ -476,14 +474,6 @@ def _clarification(session: Session, clarification_id: uuid.UUID) -> Clarificati
     return row
 
 
-# Matching rules-v1 counts a fact with any evidence source; this keeps answers counting
-# until rules-v2, where only confirmation does (ADR 0009).
-def _answer_source(session: Session, candidate_id: uuid.UUID, title: str) -> EvidenceSource:
-    source = EvidenceSource(candidate_id=candidate_id, kind=EvidenceKind.OTHER, title=title[:300])
-    session.add(source)
-    return source
-
-
 def answer_clarification(
     session: Session, clarification_id: uuid.UUID, answer: str, expected_version: int
 ) -> ClarificationRequest:
@@ -515,9 +505,6 @@ def answer_clarification(
             parent_fact_id=parent,
             origin=FactOrigin.DOCUMENT_QUESTION,
         )
-        fact.evidence_sources = [
-            _answer_source(session, bundle.candidate_id, "Answer to a document question")
-        ]
         session.add(fact)
         session.flush()
         row.proposed_fact_id = fact.id
