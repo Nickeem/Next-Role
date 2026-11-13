@@ -17,7 +17,7 @@ from next_role.matching.engine import (
 )
 
 AS_OF = date(2026, 10, 1)
-V, E, U = FactSupport.VERIFIED, FactSupport.EVIDENCED, FactSupport.UNSUPPORTED
+V, U = FactSupport.CONFIRMED, FactSupport.UNCONFIRMED
 
 
 def fact(
@@ -67,9 +67,9 @@ def status(text: str, cand: CandidateView) -> MatchStatus:
 # --- Skills ------------------------------------------------------------------------------
 
 
-def test_verified_and_evidenced_skills_match_with_evidence() -> None:
+def test_confirmed_skills_match_with_evidence() -> None:
     py = fact(title="Python")
-    pg = fact(title="PostgreSQL", support=E)
+    pg = fact(title="PostgreSQL")
     result = match_requirement(req("Python and PostgreSQL"), candidate(py, pg), AS_OF)
     assert result.status is MatchStatus.MET
     assert {e.fact_id for e in result.evidence} == {py.id, pg.id}
@@ -82,7 +82,7 @@ def test_unsupported_claim_is_never_a_verified_match() -> None:
     )
     assert result.status is MatchStatus.UNVERIFIED
     assert result.credit == 0.0
-    assert all(e.support == "unsupported" for e in result.evidence)
+    assert all(e.support == "unconfirmed" for e in result.evidence)
 
 
 def test_missing_evidence_is_not_a_mismatch() -> None:
@@ -222,7 +222,7 @@ def test_unranked_education_is_unknown_not_missing() -> None:
 
 
 def test_certifications() -> None:
-    cissp = fact("certification", "CISSP", E, skills=())
+    cissp = fact("certification", "CISSP", V, skills=())
     assert status("Must hold a current CISSP certification", candidate(cissp)) is MatchStatus.MET
     aws = fact(
         "certification",

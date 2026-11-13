@@ -851,6 +851,8 @@ a {
   color: var(--positive-ink);
 }
 
+/* rules-v2 records confirmed/unconfirmed; older assessments keep verified/evidenced/unsupported. */
+.support--unconfirmed,
 .support--unsupported {
   color: var(--postpone-ink);
 }

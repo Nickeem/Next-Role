@@ -7,8 +7,9 @@ rules or weights change.
 
 Core principles:
 
-* Only *supported* facts (user-verified, or linked to at least one evidence source) can make
-  a requirement ``met`` or ``partially_met``. Unsupported claims produce ``unverified``.
+* Only *confirmed* facts (``user_verified``) can make a requirement ``met`` or
+  ``partially_met``. Linked evidence does not change that (ADR 0009). Unconfirmed claims
+  produce ``unverified``.
 * Absence of evidence (``no_evidence``) is distinct from a confirmed mismatch (``not_met``).
   ``not_met`` is only used when supported candidate information contradicts the requirement.
 * Requirements the rules cannot interpret are ``unknown``. They are never assumed satisfied.
@@ -32,7 +33,7 @@ from next_role.jobs.extraction import (
 from next_role.skills import detect_skills, is_known_skill, skill_family
 
 METHOD = "rules"
-METHOD_VERSION = "rules-v1"
+METHOD_VERSION = "rules-v2"
 
 IMPORTANCE_WEIGHTS: dict[RequirementImportance, int] = {
     RequirementImportance.REQUIRED: 3,
@@ -55,9 +56,9 @@ MIN_COVERAGE_FOR_TIER = 0.4
 class MatchStatus(StrEnum):
     MET = "met"
     PARTIALLY_MET = "partially_met"
-    # Supported candidate information contradicts the requirement.
+    # Confirmed candidate information contradicts the requirement.
     NOT_MET = "not_met"
-    # Only unsupported (self-reported, no evidence) candidate claims address it.
+    # Only unconfirmed (self-reported) candidate claims address it.
     UNVERIFIED = "unverified"
     # The knowledge base contains nothing relevant.
     NO_EVIDENCE = "no_evidence"
@@ -106,7 +107,8 @@ class FactView:
 
     @property
     def supported(self) -> bool:
-        return self.support is not FactSupport.UNSUPPORTED
+        """Whether the fact can satisfy a requirement: only a confirmed fact can."""
+        return self.support is FactSupport.CONFIRMED
 
     @property
     def label(self) -> str:
@@ -138,6 +140,8 @@ class JobView:
 class CandidateView:
     preferences: CandidatePreferences
     facts: tuple[FactView, ...]
+    # Candidate.location: the acceptable location when preferences name none.
+    home_location: str | None = None
 
 
 # --- Output ------------------------------------------------------------------------------
@@ -239,12 +243,12 @@ def _term_evidence(term: str, facts: Sequence[FactView]) -> _TermEvidence:
                 f"no direct evidence for '{term}', but related skills are supported",
             )
 
-    unsupported = [_ref(f, f"{why} '{term}' (unverified)") for f, why in direct]
+    unsupported = [_ref(f, f"{why} '{term}' (unconfirmed)") for f, why in direct]
     if unsupported:
         return _TermEvidence(
             MatchStatus.UNVERIFIED,
             tuple(unsupported),
-            f"'{term}' is claimed but not verified or evidenced",
+            f"'{term}' is claimed but not confirmed",
         )
     return _TermEvidence(MatchStatus.NO_EVIDENCE, (), f"no evidence of '{term}'")
 
@@ -272,7 +276,7 @@ def _combine_terms(req: RequirementView, per_term: list[_TermEvidence]) -> tuple
     if any(s in (MatchStatus.MET, MatchStatus.PARTIALLY_MET) for s in statuses):
         return MatchStatus.PARTIALLY_MET, "some listed skills are supported"
     if any(s is MatchStatus.UNVERIFIED for s in statuses):
-        return MatchStatus.UNVERIFIED, "relevant claims exist but none are verified or evidenced"
+        return MatchStatus.UNVERIFIED, "relevant claims exist but none are confirmed"
     return MatchStatus.NO_EVIDENCE, "the knowledge base has no evidence for these skills"
 
 
@@ -411,7 +415,9 @@ def _match_experience_years(
             f"The experience area ('{area}') is not recognized by the rules; review manually.",
         )
     if req.terms:
-        relevant = [f for f in experiences if any(_direct_mentions(f, t) for t in req.terms)]
+        # Skill years come from dated work and projects that list or mention the skill.
+        timed = [f for f in facts if f.fact_type in ("experience", "project")]
+        relevant = [f for f in timed if any(_direct_mentions(f, t) for t in req.terms)]
         scope = f"experience involving {', '.join(req.terms)}"
     else:
         relevant = experiences
@@ -420,35 +426,41 @@ def _match_experience_years(
     supported = [f for f in relevant if f.supported]
     dated = [f for f in supported if _is_dated(f)]
     years = _total_years(dated, as_of)
-    evidence = [_ref(f, "dated experience") for f in dated]
+    evidence = [_ref(f, f"dated {f.fact_type}") for f in dated]
 
-    # A supported skill fact may state years directly (e.g. "Python, 8 years").
-    for term in req.terms:
-        for f in facts:
-            stated = f.attributes.get("years_experience")
-            is_skill = f.fact_type == "skill" and f.supported and term in f.skills
-            if is_skill and stated and float(stated) > years:
-                years = float(stated)
-                evidence.append(_ref(f, f"states {stated} years of '{term}'"))
+    # A stated skill duration ("Python, 8 years") is used only when no dated fact shows it.
+    if not dated:
+        for term in req.terms:
+            for f in facts:
+                stated = f.attributes.get("years_experience")
+                is_skill = f.fact_type == "skill" and f.supported and term in f.skills
+                if is_skill and stated and float(stated) > years:
+                    years = float(stated)
+                    evidence = [_ref(f, f"states {stated:g} years of '{term}' (stated)")]
 
     if not evidence:
         if supported:
             return _result(
                 req,
                 MatchStatus.UNKNOWN,
-                f"Supported {scope} exists, but its dates are incomplete; duration unknown.",
-                tuple(_ref(f, "undated experience") for f in supported),
+                f"Confirmed {scope} exists, but its dates are incomplete; duration unknown.",
+                tuple(_ref(f, f"undated {f.fact_type}") for f in supported),
             )
         if relevant:
             return _result(
                 req,
                 MatchStatus.UNVERIFIED,
-                f"Relevant {scope} is claimed but not verified or evidenced.",
-                tuple(_ref(f, "unverified experience") for f in relevant),
+                f"Relevant {scope} is claimed but not confirmed.",
+                tuple(_ref(f, f"unconfirmed {f.fact_type}") for f in relevant),
             )
         return _result(req, MatchStatus.NO_EVIDENCE, f"No {scope} is recorded.")
 
-    detail = f"Supported {scope} totals {years:g} years; {min_years:g}+ required."
+    stated_only = not dated
+    detail = (
+        f"Stated {scope} is {years:g} years; {min_years:g}+ required."
+        if stated_only
+        else f"Confirmed {scope} totals {years:g} years; {min_years:g}+ required."
+    )
     if years >= min_years:
         return _result(req, MatchStatus.MET, detail, tuple(evidence))
     if years >= min_years * PARTIAL_YEARS_RATIO:
@@ -472,7 +484,7 @@ def _match_education(req: RequirementView, facts: Sequence[FactView]) -> Require
             return _result(
                 req,
                 MatchStatus.UNKNOWN,
-                "Supported education is recorded with a degree level ('other') the rules "
+                "Confirmed education is recorded with a degree level ('other') the rules "
                 "cannot compare; review manually.",
                 tuple(_ref(f, "education of unranked level") for f in completed),
             )
@@ -480,7 +492,7 @@ def _match_education(req: RequirementView, facts: Sequence[FactView]) -> Require
             return _result(
                 req,
                 MatchStatus.UNVERIFIED,
-                "Education is recorded but not verified, evidenced, or completed.",
+                "Education is recorded but not confirmed or not completed.",
                 tuple(_ref(f, "unverified or in-progress education") for f in education),
             )
         return _result(req, MatchStatus.NO_EVIDENCE, "No education is recorded.")
@@ -581,7 +593,7 @@ def _match_certification(
         return _result(
             req,
             MatchStatus.UNVERIFIED,
-            "A matching certification is claimed but not verified or evidenced.",
+            "A matching certification is claimed but not confirmed.",
             tuple(_ref(c, "unverified certification") for c in matching),
         )
     if not req.terms and not req_words:
@@ -689,8 +701,13 @@ def match_requirement(
 # --- Preferences (reported separately; not part of the score) ----------------------------
 
 
-def _check_preferences(job: JobView, prefs: CandidatePreferences) -> tuple[PreferenceCheck, ...]:
+def _check_preferences(
+    job: JobView, prefs: CandidatePreferences, home_location: str | None = None
+) -> tuple[PreferenceCheck, ...]:
     checks: list[PreferenceCheck] = []
+    # Preferred locations when stated, otherwise where the candidate lives.
+    locations = prefs.locations or ([home_location] if home_location else [])
+    preferred = "a preferred location" if prefs.locations else "the candidate's home location"
 
     arrangements = {a.value for a in prefs.work_arrangements}
     if job.work_arrangement == "unknown" or not arrangements:
@@ -718,17 +735,16 @@ def _check_preferences(job: JobView, prefs: CandidatePreferences) -> tuple[Prefe
                 "Job is remote; regional restrictions, if any, are not evaluated.",
             )
         )
-    elif not job.location or not prefs.locations:
+    elif not job.location or not locations:
         checks.append(
             PreferenceCheck("location", PreferenceStatus.UNKNOWN, "Location or preference unknown.")
         )
     elif any(
-        re.search(rf"(?<!\w){re.escape(p)}(?!\w)", job.location, re.IGNORECASE)
-        for p in prefs.locations
+        re.search(rf"(?<!\w){re.escape(p)}(?!\w)", job.location, re.IGNORECASE) for p in locations
     ):
         checks.append(
             PreferenceCheck(
-                "location", PreferenceStatus.COMPATIBLE, f"{job.location} is a preferred location."
+                "location", PreferenceStatus.COMPATIBLE, f"{job.location} is {preferred}."
             )
         )
     elif prefs.willing_to_relocate:
@@ -736,7 +752,7 @@ def _check_preferences(job: JobView, prefs: CandidatePreferences) -> tuple[Prefe
             PreferenceCheck(
                 "location",
                 PreferenceStatus.COMPATIBLE,
-                f"{job.location} is not preferred, but the candidate will relocate.",
+                f"{job.location} is not {preferred}, but the candidate will relocate.",
             )
         )
     else:
@@ -745,9 +761,7 @@ def _check_preferences(job: JobView, prefs: CandidatePreferences) -> tuple[Prefe
             if prefs.willing_to_relocate is False
             else PreferenceStatus.UNKNOWN
         )
-        checks.append(
-            PreferenceCheck("location", status, f"{job.location} is not a preferred location.")
-        )
+        checks.append(PreferenceCheck("location", status, f"{job.location} is not {preferred}."))
 
     types = {t.value for t in prefs.employment_types}
     if job.employment_type == "unknown" or not types:
@@ -832,6 +846,6 @@ def assess(candidate: CandidateView, job: JobView, as_of: date) -> AssessmentRes
         tier=tier,
         has_blocking_gaps=blocking,
         results=results,
-        preference_checks=_check_preferences(job, candidate.preferences),
+        preference_checks=_check_preferences(job, candidate.preferences, candidate.home_location),
         status_counts=counts,
     )

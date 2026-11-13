@@ -405,11 +405,13 @@ class FactUpdate(_Strict):
 
 
 class FactSupport(StrEnum):
-    """How well a fact is substantiated. Only verified/evidenced facts count as match evidence."""
+    """Whether a fact can support a requirement: only a confirmed one can (ADR 0009).
 
-    VERIFIED = "verified"
-    EVIDENCED = "evidenced"
-    UNSUPPORTED = "unsupported"
+    Assessments made before ``rules-v2`` recorded ``verified``, ``evidenced`` or
+    ``unsupported``; they are immutable and keep those values."""
+
+    CONFIRMED = "confirmed"
+    UNCONFIRMED = "unconfirmed"
 
 
 class FactOut(BaseModel):

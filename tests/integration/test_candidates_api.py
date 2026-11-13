@@ -47,16 +47,15 @@ def test_provenance_is_preserved(client: TestClient, profile: dict[str, Any]) ->
     northwind = facts["Backend Engineer"]
     assert northwind["verification_status"] == "user_verified"
     assert northwind["verified_at"] is not None
-    assert northwind["support"] == "verified"
+    assert northwind["support"] == "confirmed"
     assert northwind["evidence_source_ids"] == [evidence["Resume (synthetic)"]]
     # Aliases are normalized to canonical skill names.
     assert northwind["skills"] == ["python", "django", "postgresql", "docker", "rest apis"]
 
     cert = facts["AWS Certified Solutions Architect - Associate"]
-    assert cert["verification_status"] == "self_reported"
-    assert cert["support"] == "evidenced"
+    assert cert["support"] == "confirmed" and cert["evidence_source_ids"]
 
-    assert facts["Kubernetes"]["support"] == "unsupported"
+    assert facts["Kubernetes"]["support"] == "unconfirmed"
     assert (
         facts["Reduced API p95 latency"]["parent_fact_id"] == facts["Senior Backend Engineer"]["id"]
     )
@@ -90,10 +89,11 @@ def test_add_fact_verify_edit_and_retire(client: TestClient, profile: dict[str, 
         json={"fact_type": "skill", "name": "k8s", "evidence_source_ids": [evidence["id"]]},
     ).json()
     assert fact["skills"] == ["kubernetes"]
-    assert fact["support"] == "evidenced"
+    # Linked evidence documents a fact; only confirmation makes it count (ADR 0009).
+    assert fact["support"] == "unconfirmed"
 
     verified = client.post(f"/api/v1/candidates/{cid}/facts/{fact['id']}/verify").json()
-    assert verified["support"] == "verified"
+    assert verified["support"] == "confirmed"
 
     # Editing content invalidates a previous confirmation.
     edited = client.patch(
@@ -101,6 +101,7 @@ def test_add_fact_verify_edit_and_retire(client: TestClient, profile: dict[str, 
         json={"attributes": {"years_experience": 3}},
     ).json()
     assert edited["verification_status"] == "self_reported"
+    assert edited["support"] == "unconfirmed"
     assert edited["attributes"] == {"years_experience": 3}
 
     bad = client.patch(

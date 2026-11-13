@@ -104,6 +104,7 @@
     },
     {
       "fact_type": "education",
+      "verification_status": "user_verified",
       "institution": "Example State University (fictional)",
       "degree_level": "bachelor",
       "degree_name": "BSc Computer Science",
@@ -114,6 +115,7 @@
     },
     {
       "fact_type": "certification",
+      "verification_status": "user_verified",
       "name": "AWS Certified Solutions Architect - Associate",
       "issuer": "Amazon Web Services",
       "issued_date": "2023-02-15",
@@ -124,6 +126,7 @@
     {
       "key": "proj-route",
       "fact_type": "project",
+      "verification_status": "user_verified",
       "name": "Route planner (open source)",
       "description": "Delivery route optimizer with a Redis cache and a Python API.",
       "role": "Maintainer",

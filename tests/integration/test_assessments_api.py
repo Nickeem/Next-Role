@@ -57,21 +57,21 @@ def test_end_to_end_backend_role(client: TestClient, candidate_id: str) -> None:
         "Excellent written and verbal communication": "unknown",
         "Experience with Kafka or other event streaming platforms": "met",
         "Go experience is a plus": "unknown",
-        # The certification is evidenced but expired on 2026-02-15.
+        # The certification is confirmed but expired on 2026-02-15.
         "AWS certification": "partially_met",
     }
     assert a["score"] == 69
     assert a["tier"] == "moderate"
     assert a["has_blocking_gaps"] is False
     assert a["coverage"] == pytest.approx(17 / 24, abs=0.001)
-    assert a["method_version"] == "rules-v1"
+    assert a["method_version"] == "rules-v2"
     assert "not a probability" in a["disclaimer"]
     assert a["summary"]["unverified"] == ["Experience running workloads on Kubernetes"]
     assert a["summary"]["gaps"] == []
 
     python = next(r for r in a["requirements"] if r["text"].startswith("Strong Python"))
     assert python["explanation"]
-    assert {e["support"] for e in python["evidence"]} <= {"verified", "evidenced"}
+    assert {e["support"] for e in python["evidence"]} == {"confirmed"}
     assert all(e["fact_id"] for e in python["evidence"])
 
     prefs = {c["name"]: c["status"] for c in a["preference_checks"]}

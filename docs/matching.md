@@ -1,4 +1,4 @@
-# Matching and scoring methodology (`rules-v1`)
+# Matching and scoring methodology (`rules-v2`)
 
 This document describes how the deterministic matcher in
 `src/next_role/matching/engine.py` evaluates a candidate against a job. Rules and weights are
@@ -6,18 +6,27 @@ versioned. Every assessment stores `method_version`, and any change to the rules
 bump `METHOD_VERSION`.
 
 > The suitability score is a **ranking heuristic** over the job's stated requirements and the
-> candidate's supported evidence. It is **not** a probability of being hired, and it says
+> candidate's confirmed evidence. It is **not** a probability of being hired, and it says
 > nothing about requirements the posting does not state.
 
 ## 1. Evidence: what counts
 
-Each candidate fact has a derived **support** level:
+Each candidate fact has a derived **support** level. Only confirmation counts
+([ADR 0009](decisions/0009-candidate-model-revisions.md)): the candidate both enters and
+confirms every fact, so the system cannot establish that a fact is true, only that the
+candidate reviewed its exact text. Linked evidence sources stay visible as documentation but
+no longer change support.
 
 | Support | Condition | Can produce a match? |
 | --- | --- | --- |
-| `verified` | `verification_status = user_verified` | yes |
-| `evidenced` | not verified, but linked to at least one evidence source | yes |
-| `unsupported` | self-reported with no evidence | no, only `unverified` |
+| `confirmed` | `verification_status = user_verified` | yes |
+| `unconfirmed` | `self_reported`, with or without linked evidence | no, only `unverified` |
+
+Editing a confirmed fact's content without confirming it again makes it `unconfirmed`. Facts
+kept off documents (`include_in_documents = false`) still count.
+
+Assessments made with `rules-v1` keep the support they recorded: `verified`, `evidenced`
+(linked to an evidence source, which then counted) or `unsupported`.
 
 Retired facts are ignored. Work authorization comes from candidate *preferences*. It is treated
 as a candidate declaration (`support = candidate_declared`), and its explanation says it should
@@ -27,10 +36,10 @@ be confirmed before applying.
 
 | Status | Meaning | Score credit |
 | --- | --- | --- |
-| `met` | Supported evidence satisfies the requirement | 1.0 |
-| `partially_met` | Supported evidence partly satisfies it (see rules) | 0.5 |
-| `not_met` | Supported candidate information **contradicts** it (a confirmed gap) | 0 |
-| `unverified` | Only unsupported claims address it | 0 |
+| `met` | Confirmed evidence satisfies the requirement | 1.0 |
+| `partially_met` | Confirmed evidence partly satisfies it (see rules) | 0.5 |
+| `not_met` | Confirmed candidate information **contradicts** it (a confirmed gap) | 0 |
+| `unverified` | Only unconfirmed claims address it | 0 |
 | `no_evidence` | The knowledge base contains nothing relevant | 0 |
 | `unknown` | The rules cannot interpret or evaluate it | 0 |
 
@@ -45,11 +54,11 @@ canonical names from `next_role/skills.py`.
 **Skill / language** (any requirement with recognized terms). Each term is evaluated on its
 own:
 
-- A supported fact that lists the skill, or mentions it in its title or text, gives `met`.
-- Otherwise, a supported fact with a *related* skill (same family, e.g. MySQL for PostgreSQL)
+- A confirmed fact that lists the skill, or mentions it in its title or text, gives `met`.
+- Otherwise, a confirmed fact with a *related* skill (same family, e.g. MySQL for PostgreSQL)
   gives `partially_met`. Broad families never substitute: programming languages, human
   languages, query languages, scripting, and process.
-- Otherwise, an unsupported fact mentioning the skill gives `unverified`. Anything else gives
+- Otherwise, an unconfirmed fact mentioning the skill gives `unverified`. Anything else gives
   `no_evidence`.
 
 Term results are then combined. If all terms are met, the requirement is `met`. If any term is
@@ -60,33 +69,36 @@ make the listed skills alternatives.
 
 **Experience years** (`min_years` parsed from "5+ years …").
 
-- If the requirement names skills, only experience facts using those skills count. Otherwise
-  all experience counts. If it names an area the vocabulary cannot recognize ("3+ years of
+- If the requirement names skills, experience **and project** facts that list or mention
+  those skills count. Otherwise only experience facts count. If it names an area the vocabulary cannot recognize ("3+ years of
   Go"), the result is `unknown` instead of falling back to total experience.
-- Years are the total length of supported, dated experience: ranges are inclusive and
-  overlapping or adjacent ranges are merged. Current roles run until `as_of`. A supported
-  skill fact's stated `years_experience` can raise the total for that skill.
+- Years are the total length of confirmed, dated facts: ranges are inclusive and
+  overlapping or adjacent ranges are merged, so a project during a job adds nothing. Current
+  roles run until `as_of`.
+- A confirmed skill fact's stated `years_experience` is used only when no confirmed, dated
+  fact shows the skill. The explanation then says "Stated …" and the evidence reason ends in
+  "(stated)". A dated fact always wins, even when the stated number is larger.
 - years ≥ N gives `met`. years ≥ 0.7·N gives `partially_met`. Below that gives `not_met`.
-- If the supported experience has incomplete dates, the result is `unknown`. If only
-  unsupported experience is relevant, it is `unverified`. With none at all, it is
+- If the confirmed experience has incomplete dates, the result is `unknown`. If only
+  unconfirmed experience is relevant, it is `unverified`. With none at all, it is
   `no_evidence`.
 
 **Education** (lowest level mentioned: high school < associate < bachelor < master <
 doctorate; a bare "degree" means associate or higher).
 
-- The highest supported, completed degree at or above the required level gives `met`. Field of
+- The highest confirmed, completed degree at or above the required level gives `met`. Field of
   study is not evaluated.
-- A supported degree below the required level gives `not_met`.
-- Only `degree_level = other` gives `unknown`. Only unsupported or in-progress education gives
+- A confirmed degree below the required level gives `not_met`.
+- Only `degree_level = other` gives `unknown`. Only unconfirmed or in-progress education gives
   `unverified`. No education at all gives `no_evidence`.
 
 **Certification.** A certification fact is relevant if it shares a skill term with the
 requirement, or if at least half of the distinctive words overlap. Filler words such as
 "must", "hold", "current", and "certification" are ignored. Results:
 
-- A supported, unexpired certification gives `met`. A supported but expired one gives
+- A confirmed, unexpired certification gives `met`. A confirmed but expired one gives
   `partially_met`.
-- An unsupported one gives `unverified`. None gives `no_evidence`.
+- An unconfirmed one gives `unverified`. None gives `no_evidence`.
 
 **Work authorization** (countries and sponsorship parsed from the requirement):
 
@@ -125,7 +137,9 @@ Read the two together with `coverage`.
 ## 5. Preference checks (not scored)
 
 Work arrangement, location, employment type, and salary are compared with the candidate's
-preferences. Each check reports `compatible`, `conflict`, or `unknown`, and none of them
+preferences. Acceptable locations are `preferences.locations` when set; otherwise the
+candidate's home location (`Candidate.location`). With neither, the location check is
+`unknown`. Each check reports `compatible`, `conflict`, or `unknown`, and none of them
 affects the score.
 
 - Location uses whole-word matching, so "CA" does not match "Chicago".
@@ -134,9 +148,10 @@ affects the score.
 
 ## 6. Idempotency and history
 
-Assessments are immutable. Each one stores a fingerprint of the active facts (ids, update
-times, verification, evidence links), the preferences, the job attributes and requirements,
-`method_version`, and `as_of`. Re-running with identical inputs returns the existing
+Assessments are immutable. Each one stores a fingerprint of the active facts (id, content
+hash and verification status), the preferences, the home location, the job attributes and
+requirements, `method_version`, and `as_of`. Evidence links, fact origin, inclusion in
+documents and the about-me are not part of it: they cannot change the result. Re-running with identical inputs returns the existing
 assessment. Any change to those inputs creates a new assessment and keeps the old one.
 
 ## 7. Known limitations of the rule-based path
