@@ -11,13 +11,20 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
-from next_role.candidates.models import EvidenceKind, FactType, VerificationStatus
+from next_role.candidates.models import (
+    ABOUT_ME_MAX,
+    EvidenceKind,
+    FactOrigin,
+    FactType,
+    VerificationStatus,
+)
 from next_role.skills import normalize_skill, normalize_skills
 
 SCHEMA_VERSION = "candidate-profile/v1"
 
 ShortStr = Annotated[str, Field(min_length=1, max_length=300)]
 LongStr = Annotated[str, Field(max_length=10_000)]
+AboutMe = Annotated[str, Field(max_length=ABOUT_ME_MAX)]
 
 
 class _Strict(BaseModel):
@@ -44,6 +51,7 @@ class EmploymentType(StrEnum):
 class CandidatePreferences(_Strict):
     """Job-matching preferences. Empty lists and nulls mean "no stated preference"."""
 
+    # Not used by matching; the input for job searches (Phase 4).
     desired_titles: list[ShortStr] = []
     # Cities/regions/countries the candidate can work from or in.
     locations: list[ShortStr] = []
@@ -109,13 +117,6 @@ class SkillCategory(StrEnum):
     INTERPERSONAL = "interpersonal"
 
 
-class Proficiency(StrEnum):
-    BEGINNER = "beginner"
-    INTERMEDIATE = "intermediate"
-    ADVANCED = "advanced"
-    EXPERT = "expert"
-
-
 class DegreeLevel(StrEnum):
     HIGH_SCHOOL = "high_school"
     ASSOCIATE = "associate"
@@ -127,13 +128,12 @@ class DegreeLevel(StrEnum):
 
 class ExperienceAttributes(_Strict):
     location: ShortStr | None = None
-    employment_type: EmploymentType | None = None
     responsibilities: list[LongStr] = []
 
 
 class SkillAttributes(_Strict):
+    # Not used by matching or documents; the profile editor groups skills by it.
     category: SkillCategory | None = None
-    proficiency: Proficiency | None = None
     years_experience: float | None = Field(default=None, ge=0, le=60)
 
 
@@ -143,12 +143,14 @@ class EducationAttributes(_Strict):
 
 
 class CertificationAttributes(_Strict):
+    # Shown in documents as details of the certification, rendered by code (ADR 0009).
     credential_id: ShortStr | None = None
     credential_url: HttpUrl | None = None
 
 
 class ProjectAttributes(_Strict):
     role: ShortStr | None = None
+    # Shown in documents as a detail of the project, rendered by code (ADR 0009).
     url: HttpUrl | None = None
 
 
@@ -186,6 +188,8 @@ class FactRecord(BaseModel):
 
 class _FactInBase(_Strict):
     verification_status: VerificationStatus = VerificationStatus.SELF_REPORTED
+    # False keeps the fact off generated documents; it still counts for matching.
+    include_in_documents: bool = True
     # Profile import: reference evidence/parents declared in the same payload by key.
     key: ShortStr | None = None
     evidence_keys: list[ShortStr] = []
@@ -211,7 +215,6 @@ class ExperienceIn(_FactInBase):
     organization: ShortStr
     description: LongStr | None = None
     location: ShortStr | None = None
-    employment_type: EmploymentType | None = None
     responsibilities: list[LongStr] = []
     start_date: date
     end_date: date | None = None
@@ -226,11 +229,7 @@ class ExperienceIn(_FactInBase):
         return self
 
     def to_record(self) -> FactRecord:
-        attrs = ExperienceAttributes(
-            location=self.location,
-            employment_type=self.employment_type,
-            responsibilities=self.responsibilities,
-        )
+        attrs = ExperienceAttributes(location=self.location, responsibilities=self.responsibilities)
         return FactRecord(
             fact_type=self.fact_type,
             title=self.title,
@@ -248,16 +247,11 @@ class SkillIn(_FactInBase):
     fact_type: Literal[FactType.SKILL]
     name: ShortStr
     category: SkillCategory | None = None
-    proficiency: Proficiency | None = None
     years_experience: float | None = Field(default=None, ge=0, le=60)
     description: LongStr | None = None
 
     def to_record(self) -> FactRecord:
-        attrs = SkillAttributes(
-            category=self.category,
-            proficiency=self.proficiency,
-            years_experience=self.years_experience,
-        )
+        attrs = SkillAttributes(category=self.category, years_experience=self.years_experience)
         return FactRecord(
             fact_type=self.fact_type,
             title=self.name,
@@ -404,6 +398,8 @@ class FactUpdate(_Strict):
     # Replaces the type-specific attributes; validated against the fact's type.
     attributes: dict[str, Any] | None = None
     verification_status: VerificationStatus | None = None
+    # Not content: changing it never resets confirmation.
+    include_in_documents: bool | None = None
     # Replaces the set of linked evidence sources.
     evidence_source_ids: list[uuid.UUID] | None = None
 
@@ -431,6 +427,8 @@ class FactOut(BaseModel):
     attributes: dict[str, Any]
     verification_status: VerificationStatus
     verified_at: datetime | None
+    origin: FactOrigin
+    include_in_documents: bool
     support: FactSupport
     evidence_source_ids: list[uuid.UUID]
     parent_fact_id: uuid.UUID | None
@@ -444,8 +442,9 @@ class FactOut(BaseModel):
 
 class CandidateBase(_Strict):
     full_name: ShortStr
+    # Shown in document headers, rendered by code; never sent to an LLM.
     headline: ShortStr | None = None
-    summary: LongStr | None = None
+    about_me: AboutMe | None = None
     location: ShortStr | None = None
     contact: CandidateContact = CandidateContact()
     preferences: CandidatePreferences = CandidatePreferences()
@@ -480,7 +479,7 @@ class CandidateProfileIn(CandidateBase):
 class CandidateUpdate(_Strict):
     full_name: ShortStr | None = None
     headline: ShortStr | None = None
-    summary: LongStr | None = None
+    about_me: AboutMe | None = None
     location: ShortStr | None = None
     contact: CandidateContact | None = None
     preferences: CandidatePreferences | None = None
@@ -497,7 +496,7 @@ class CandidateSummaryOut(BaseModel):
 
 
 class CandidateOut(CandidateSummaryOut):
-    summary: str | None
+    about_me: str | None
     location: str | None
     contact: CandidateContact
     preferences: CandidatePreferences

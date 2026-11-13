@@ -98,10 +98,10 @@ def test_add_fact_verify_edit_and_retire(client: TestClient, profile: dict[str, 
     # Editing content invalidates a previous confirmation.
     edited = client.patch(
         f"/api/v1/candidates/{cid}/facts/{fact['id']}",
-        json={"attributes": {"proficiency": "advanced"}},
+        json={"attributes": {"years_experience": 3}},
     ).json()
     assert edited["verification_status"] == "self_reported"
-    assert edited["attributes"] == {"proficiency": "advanced"}
+    assert edited["attributes"] == {"years_experience": 3}
 
     bad = client.patch(
         f"/api/v1/candidates/{cid}/facts/{fact['id']}", json={"attributes": {"degree": "x"}}

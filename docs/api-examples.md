@@ -18,6 +18,15 @@ writes (see `docs/architecture.md`, Security).
 Import a complete profile: details, preferences, evidence sources, and facts. Facts refer to
 evidence (and achievements to their parent experience) by keys local to the payload.
 
+The profile's `about_me` (up to 2,000 characters) is the candidate's self-description. It is
+never confirmed and never used by matching. `headline` is shown in document headers. Each
+fact records its `origin` (`import` here, `api` for `POST .../facts`, `document_question`
+for facts created from documents, `manual` from the web workspace) and
+`include_in_documents` (default `true`; `false` keeps the fact off documents while it still
+counts for matching). Skill `proficiency`, experience `employment_type` and the
+`user_statement` evidence kind were removed ([ADR 0009](decisions/0009-candidate-model-revisions.md))
+and are rejected.
+
 ```bash
 curl -sS -X POST $API/api/v1/candidates -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' --data-binary @examples/candidate.json
@@ -28,15 +37,16 @@ curl -sS -X POST $API/api/v1/candidates -H "X-API-Key: $KEY" \
 {
   "id": "04653b3a-…",
   "full_name": "Alex Example",
+  "about_me": "Synthetic candidate used for documentation and tests. …",
   "preferences": {"work_authorizations": ["CA"], "work_arrangements": ["remote", "hybrid"], …},
   "evidence_sources": [{"id": "…", "kind": "resume", "title": "Resume (synthetic)", …}, …],
   "facts": [
     {"fact_type": "experience", "title": "Backend Engineer",
      "skills": ["python", "django", "postgresql", "docker", "rest apis"],
-     "verification_status": "user_verified", "support": "verified",
-     "evidence_source_ids": ["…"], …},
+     "verification_status": "user_verified", "support": "verified", "origin": "import",
+     "include_in_documents": true, "evidence_source_ids": ["…"], …},
     {"fact_type": "skill", "title": "Kubernetes", "verification_status": "self_reported",
-     "support": "unsupported", …},
+     "support": "unsupported", "origin": "import", …},
     …
   ]
 }
@@ -52,11 +62,30 @@ curl -sS -X POST $API/api/v1/candidates/$CID/evidence-sources -H "X-API-Key: $KE
 curl -sS -X POST $API/api/v1/candidates/$CID/facts -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' \
   -d '{"fact_type": "skill", "name": "k8s", "evidence_source_ids": ["<evidence id>"]}'
-# Confirm a fact, edit it (resets confirmation), or retire it
+# Confirm a fact, or retire it
 curl -sS -X POST   $API/api/v1/candidates/$CID/facts/<fact id>/verify -H "X-API-Key: $KEY"
-curl -sS -X PATCH  $API/api/v1/candidates/$CID/facts/<fact id> -H "X-API-Key: $KEY" \
-  -H 'Content-Type: application/json' -d '{"attributes": {"proficiency": "advanced"}}'
 curl -sS -X DELETE $API/api/v1/candidates/$CID/facts/<fact id> -H "X-API-Key: $KEY"
+```
+
+Edit a fact with `PUT` and the same typed body as creation. The type cannot change (`422`),
+and the body is validated as on creation. It replaces the whole fact, including evidence
+links, parent and `include_in_documents`. Changed content resets a confirmed fact to
+`self_reported`, unless the same request sends `verification_status`:
+
+```bash
+curl -sS -X PUT $API/api/v1/candidates/$CID/facts/<fact id> -H "X-API-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"fact_type": "skill", "name": "Kubernetes", "years_experience": 3,
+       "verification_status": "user_verified"}'
+```
+
+`PATCH` still works, and is the way to change only `include_in_documents`,
+`verification_status` or evidence links. It is deprecated for content edits because it skips
+most per-type validation:
+
+```bash
+curl -sS -X PATCH $API/api/v1/candidates/$CID/facts/<fact id> -H "X-API-Key: $KEY" \
+  -H 'Content-Type: application/json' -d '{"include_in_documents": false}'
 ```
 
 ## 2. Submit a job description
